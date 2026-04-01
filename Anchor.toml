@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-demo1 = "Hb5rCLerZEYj1HReMnw1utKCpVEEemDPbed2cmDStbRw"
+policy_pay = "Hb5rCLerZEYj1HReMnw1utKCpVEEemDPbed2cmDStbRw"
 
 [registry]
 url = "https://api.apr.dev"

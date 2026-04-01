@@ -1,13 +1,16 @@
 use anchor_lang::prelude::*;
 
+pub mod constants;
+pub mod errors;
+pub mod state;
+
 declare_id!("Hb5rCLerZEYj1HReMnw1utKCpVEEemDPbed2cmDStbRw");
 
 #[program]
-pub mod demo1 {
+pub mod policy_pay {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        msg!("Greetings from: {:?}", ctx.program_id);
+    pub fn initialize(_ctx: Context<Initialize>) -> Result<()> {
         Ok(())
     }
 }
