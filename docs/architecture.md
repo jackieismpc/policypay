@@ -4,35 +4,82 @@
 
 在可控风险下，把稳定币支付从手工链上操作升级为可审批、可执行、可审计的业务流程。
 
-本项目采用“核心先定型”策略：
+本项目采用“核心先定型、按真实现状递进落地”的策略：
 
-- 核心架构第一阶段冻结，不在中途重做主干设计。
-- 核心能力第一阶段完整实现，不采用“先砍主功能后补回”的路径。
+- 先对齐文档与真实代码状态，再推进实现。
+- 先把链上底座打磨稳定，再逐层补齐离链闭环。
+- 主链路优先，锦上添花能力后置。
 
-## 2. 设计原则
+## 2. 当前实现基线
 
-1. 模块边界先于实现
-- 每个模块先定义输入/输出与依赖，再选技术栈。
+### 2.1 已实现部分
 
-2. 领域模型唯一
-- `Intent`、`Policy`、`Approval`、`Execution` 为全系统共享语义。
+当前仓库已存在链上最小原型：`programs/policy_pay/`。
 
-3. 可替换实现
-- AI、数据库、队列、RPC、钱包连接器都通过适配层接入。
+已实现链上指令：
 
-4. 核心能力一次性打磨
-- 主流程能力（策略、审批、执行、回写、重试）在首轮版本即达到可用质量。
+- `create_policy`
+- `create_intent`
+- `approve_intent`
+- `execute_intent`
+- `settle_intent`
+- `retry_intent`
+- `cancel_intent`
 
-5. 增量仅用于非核心能力
-- 仅对与主链路距离较远的能力采用后置迭代。
+当前链上核心账户：
 
-## 3. 模块划分
+- `PolicyAccount`
+- `PaymentIntent`
 
-### 3.1 Domain Module
+当前真实可达状态流：
+
+- `PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+
+当前已覆盖的最小测试：
+
+- 主流程生命周期
+- 失败后重试再成功
+- 白名单约束
+- memo 必填约束
+
+### 2.2 当前未实现部分
+
+以下模块仍基本停留在文档阶段：
+
+- Control Plane
+- Relayer / Execution Engine
+- Indexer / Observability
+- Dashboard
+- Agent Adapter
+- Batch intent
+
+说明：`IntentStatus` 中虽然已有 `Draft`，但链上尚未提供 Draft 的可达流程，因此当前建议将 Draft 先作为离链概念处理。
+
+## 3. 设计原则
+
+1. 领域模型以链上真实状态为基线
+- 当前以 `PolicyAccount`、`PaymentIntent`、`IntentStatus` 作为第一份真实领域模型来源。
+
+2. 一条指令只负责一次清晰的状态迁移
+- 继续沿用当前链上程序的状态迁移设计，便于测试、审计和错误定位。
+
+3. Control Plane 不替代链上事实
+- Control Plane 负责统一 API、业务映射和审计聚合，但链上账户仍是最终事实源。
+
+4. Draft 优先离链化
+- Agent draft 在真正接入前，先以离链 schema 和人工确认流程表达，不急于扩大链上状态机。
+
+5. 共享抽象由复用需求驱动
+- 只有当 control plane、relayer、dashboard 确实共享类型或逻辑时，再抽取 `modules/domain` 等共享模块。
+
+## 4. 模块划分
+
+### 4.1 Domain Module
 
 职责：
 
-- 定义统一实体、状态机、错误码与事件。
+- 定义统一实体、状态机、错误码与事件映射。
+- 复用链上模型并提供离链 DTO。
 
 核心实体：
 
@@ -41,18 +88,35 @@
 - `ApprovalRecord`
 - `ExecutionRecord`
 
-### 3.2 Onchain Program Module
+现状：
+
+- 当前尚未独立落地，短期内以链上模型为准。
+
+### 4.2 Onchain Program Module
 
 职责：
 
 - 持久化核心支付状态。
-- 强约束状态转移与资金相关校验。
+- 强约束状态转移与基础策略校验。
 
-边界：
+当前已实现：
 
-- 不处理 AI、OCR、报表查询。
+- policy 创建
+- 单笔 intent 创建
+- 审批
+- 执行提交
+- 成功/失败结算
+- retry
+- cancel
 
-### 3.3 Policy Engine Module
+当前缺口：
+
+- 权限与错误边界测试仍需补齐
+- batch intent 未实现
+- 审计记录与事件仍需完善
+- Draft 尚未链上化
+
+### 4.3 Policy Engine Module
 
 职责：
 
@@ -63,18 +127,28 @@
 
 - 不执行链上交易。
 
-### 3.4 Control Plane Module
+现状：
+
+- 当前最小策略校验已直接体现在链上程序中，后续再按复用需求抽离离链策略层。
+
+### 4.4 Control Plane Module
 
 职责：
 
 - 提供统一 API。
 - 管理策略、审批、审计日志与 webhook。
+- 对链上账户与业务侧记录做映射。
 
 边界：
 
-- 不替代链上事实，只维护业务侧映射与操作轨迹。
+- 不替代链上事实。
+- 不绕过链上审批与状态机。
 
-### 3.5 Execution Engine (Relayer) Module
+当前建议：
+
+- 先实现薄 Control Plane MVP，只做查询、编排和最小审计。
+
+### 4.5 Execution Engine (Relayer) Module
 
 职责：
 
@@ -86,7 +160,11 @@
 
 - 不定义策略，不绕过审批。
 
-### 3.6 Dashboard Module
+当前建议：
+
+- 在 Control Plane MVP 之后实现，避免后台执行逻辑先于业务契约成型。
+
+### 4.6 Dashboard Module
 
 职责：
 
@@ -98,7 +176,11 @@
 
 - 不直接持有后端热钱包密钥。
 
-### 3.7 Agent Adapter Module
+当前建议：
+
+- 优先复用现有 `app/` 目录实现 MVP，而不是先为目录结构扩容。
+
+### 4.7 Agent Adapter Module
 
 职责：
 
@@ -109,18 +191,27 @@
 
 - 只能草拟，不可直接执行。
 
-### 3.8 Indexer & Observability Module
+当前建议：
+
+- 先做离链 Draft schema。
+- 人工确认后再创建链上 intent。
+
+### 4.8 Indexer & Observability Module
 
 职责：
 
-- 订阅链上事件并回写状态。
+- 订阅链上事件或轮询链上状态并回写。
 - 输出成功率、失败原因、处理延迟等指标。
 
 边界：
 
 - 不参与审批决策。
 
-## 4. 模块接口契约（可替换点）
+当前建议：
+
+- 与 Relayer 一起实现最小回写闭环。
+
+## 5. 模块接口契约（可替换点）
 
 ```text
 IntentRepository
@@ -150,52 +241,62 @@ EventSink
 
 替换示例：
 
-- 更换数据库：替换 `IntentRepository`。
-- 更换 LLM：替换 `DraftProvider`。
-- 更换 RPC 或执行策略：替换 `ChainExecutor`。
+- 更换数据库：替换 `IntentRepository`
+- 更换 LLM：替换 `DraftProvider`
+- 更换 RPC 或执行策略：替换 `ChainExecutor`
 
-## 5. 核心功能定义（首轮必须实现）
+## 6. 当前优先级排序
 
-1. 策略管理与策略校验（金额上限、接收方白名单、memo 规则）。
-2. 单笔与批量 intent。
-3. 人类可读审批与审批留痕。
-4. Relayer 幂等执行与失败重试。
-5. 执行状态回写与可观测性。
-6. Dashboard 全流程可操作。
-7. Agent draft + 人工把关。
+推荐实施顺序：
 
-## 6. 后置功能定义（可后续补充）
+1. 文档对齐
+2. 链上 Program 收口与测试补强
+3. Control Plane MVP
+4. Relayer + Indexer MVP
+5. Dashboard MVP
+6. Agent Adapter Draft MVP
+7. 最终 README / docs / 示例 / demo 收尾
 
-- OCR/发票解析。
-- 多 relayer 高可用调度。
-- 复杂组织权限模型。
-- 高级 BI 报表与自动告警。
+## 7. 当前核心状态机
 
-## 7. 核心状态机
+### 7.1 当前实际链上状态机
 
-`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+`PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
 
 规则：
 
-- 仅 `Approved` 可进入 `Submitted`。
-- `Confirmed` 为终态，不允许重复执行。
-- `Failed` 仅在可重试条件满足时进入重试队列。
+- 仅 `Approved` 可进入 `Submitted`
+- `Confirmed` 为终态
+- `Failed` 可在满足条件时进入 `retry`
+- `PendingApproval` 与 `Approved` 可取消
 
-## 8. 架构冻结点（Architecture Freeze）
+### 7.2 目标扩展方向
 
-在正式开发第 2 天结束前冻结以下内容：
+目标上仍保留：
 
-1. 核心实体字段与状态机。
-2. 模块边界与接口契约。
-3. API 最小集合与错误码约定。
-4. 审批数据结构与审计字段。
+`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+
+但当前阶段不立即启用链上 `Draft`，以避免在主链路尚未稳定前扩大状态机复杂度。
+
+## 8. 架构冻结点
+
+在当前阶段应先冻结以下内容：
+
+1. 当前链上真实领域模型与状态机
+2. 链上错误码与测试边界
+3. Control Plane 的最小职责边界
+4. 本地凭据与测试环境约定
+5. 大阶段提交、审查和验证门禁
 
 冻结后规则：
 
-- 核心模块仅允许兼容性增强，不允许破坏式重构。
-- 新增需求默认进入后置池，除非影响核心主链路正确性。
+- 核心模块仅允许兼容性增强，不做随意重构
+- 新增需求默认进入后续阶段，除非影响主链路正确性
+- 任何扩大状态机或目录结构的设计，都应以真实复用需求为前提
 
 ## 9. 推荐仓库结构
+
+当前：
 
 ```text
 policypay/
@@ -203,16 +304,29 @@ policypay/
   docs/
     architecture.md
     delivery-plan.md
-  modules/
-    domain/
-    policy-engine/
-    agent-adapter/
+  programs/
+    policy_pay/
+  migrations/
+  tests/
+  app/
+```
+
+阶段性目标：
+
+```text
+policypay/
+  README.md
+  docs/
+    architecture.md
+    delivery-plan.md
   programs/
     policy_pay/
   services/
     control-plane/
     relayer/
     indexer/
-  apps/
-    dashboard/
+  app/
+  modules/
+    agent-adapter/      # 当离链 Draft 真正成型后再抽离
+    domain/             # 当多个模块共享类型后再抽离
 ```

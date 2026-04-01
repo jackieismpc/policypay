@@ -1,137 +1,278 @@
 # PolicyPay 需求与实施计划
 
-## 1. 执行策略调整
+## 1. 当前阶段判断
 
-本计划采用“核心功能前置打磨”策略：
+当前仓库已经有链上最小原型，但整体产品仍未形成完整闭环。
 
-- 核心功能不后置，不以后续补功能的方式回填主链路。
-- 第一轮就实现完整核心面，并完成端到端稳定性验证。
-- 仅锦上添花能力放入后续迭代。
+### 当前已实现
 
-## 2. 核心功能范围（第一轮必须完成）
+- Anchor program：`programs/policy_pay/`
+- 已实现指令：
+  - `create_policy`
+  - `create_intent`
+  - `approve_intent`
+  - `execute_intent`
+  - `settle_intent`
+  - `retry_intent`
+  - `cancel_intent`
+- 当前可达状态流：
+  - `PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+- 已有 Anchor 测试覆盖：
+  - 主流程生命周期
+  - 失败后重试
+  - 白名单
+  - memo 约束
+
+### 当前未完成
+
+- 权限边界与错误码测试仍需补齐
+- batch intent 未实现
+- `Draft` 尚未作为链上可达流程落地
+- Control Plane / Relayer / Indexer / Dashboard / Agent Adapter 仍未落地
+- `app/` 为空
+- `migrations/deploy.ts` 仍是默认占位脚本
+
+## 2. 实施原则
+
+- 先更新文档，再开始对应阶段编码
+- 先收口链上正确性，再推进离链闭环
+- 先做单笔 intent 主闭环，再扩展 batch intent 和 agent draft
+- 主链路所需能力优先，非核心能力后置
+- 所有阶段都要同步测试与文档
+
+## 3. 分阶段实施顺序
+
+### 阶段 0：文档对齐与规则落地
+
+目标：让文档、目录、真实能力和开发流程一致。
+
+本阶段输出：
+
+- 更新 `README.md`
+- 更新 `docs/architecture.md`
+- 更新 `docs/delivery-plan.md`
+- 补充 `.gitignore`，明确本地凭据、钱包、环境文件不推远端
+
+要求：
+
+- README 不再把当前仓库描述为 `demo1` scaffold
+- 文档明确区分“已实现”和“待实现”
+- 写清新的实施顺序和质量门禁
+
+### 阶段 1：链上 Program 收口与测试补强
+
+目标：把 `programs/policy_pay` 打磨成稳定底座。
+
+本阶段重点：
+
+- 补权限边界测试
+- 补非法状态迁移测试
+- 补长度边界测试
+- 补 retry 上限测试
+- 把失败断言尽量升级为错误码断言
+- 评估是否需要最小事件/审计字段，为后续 indexer 预留
+
+本阶段暂不做：
+
+- 不急于启用链上 `Draft`
+- 不急于扩展 batch intent
+
+### 阶段 2：Control Plane MVP
+
+目标：建立最小离链业务层，统一查询、编排与审计。
+
+本阶段重点：
+
+- 查询 policy / intent
+- 编排 create / approve / cancel / retry 等动作
+- 统一错误映射
+- 记录最小审计日志
+- 固化本地运行与测试配置约定
+
+### 阶段 3：Relayer + Indexer MVP
+
+目标：打通自动执行、失败重试、状态回写闭环。
+
+本阶段重点：
+
+- 自动拉取 approved intent
+- 幂等提交
+- 失败重试
+- 状态回写
+- 记录 tx signature、失败原因、retry 次数和时间线
+
+### 阶段 4：Dashboard MVP
+
+目标：完成可演示的人类操作闭环。
+
+本阶段重点：
+
+- 复用现有 `app/` 目录做最小前端
+- 支持创建 intent
+- 支持审批与取消
+- 展示执行状态
+- 提供失败重试入口
+
+### 阶段 5：Agent Adapter Draft MVP
+
+目标：支持自然语言 / CSV -> draft intent，但必须人工确认后才能落链执行。
+
+本阶段重点：
+
+- Draft schema
+- 结构化解释与风险提示
+- 人工确认后再调用链上 `create_intent`
+
+说明：
+
+- 当前阶段优先把 Draft 作为离链概念处理，不在主链路未稳定前扩大链上状态机。
+
+### 阶段 6：最终收尾与演示交付
+
+目标：形成对外可交付成果。
+
+本阶段必须完成：
+
+- 更新 README
+- 补充 docs 中的快速使用与详细使用说明
+- 增加示例
+- 准备 demo 数据与脚本
+- 完成 demo 视频
+
+## 4. 核心功能范围
+
+第一轮必须完成：
 
 1. 策略系统
-- 金额上限。
-- 接收方白名单。
-- memo 规则。
+- 金额上限
+- 接收方白名单
+- memo 规则
 
 2. Intent 与审批
-- 单笔 intent。
-- 批量 intent。
-- 人类可读审批内容。
-- 审批留痕（审批人、时间、签名摘要）。
+- 单笔 intent
+- 批量 intent
+- 人类可读审批内容
+- 审批留痕
 
 3. 执行系统
-- Relayer sponsor gas。
-- 幂等执行。
-- 失败重试（最多 3 次）。
+- Relayer sponsor gas
+- 幂等执行
+- 失败重试（最多 3 次）
 
 4. 状态追踪与审计
-- `Approved/Submitted/Confirmed/Failed` 全状态可追踪。
-- 链上 tx id 与业务 intent 可关联。
+- `Approved/Submitted/Confirmed/Failed` 全状态可追踪
+- 链上 tx id 与业务 intent 可关联
 
-5. 全流程前端
-- 创建 intent。
-- 审批 intent。
-- 查看执行日志。
-- 失败重试操作。
+5. 前端
+- 创建 intent
+- 审批 intent
+- 查看执行日志
+- 失败重试操作
 
 6. Agent draft
-- 自然语言/CSV 转 draft。
-- AI 输出强制人工审批后才可执行。
+- 自然语言/CSV 转 draft
+- AI 输出必须人工审批后才能执行
 
-## 3. 后置能力（非核心）
+## 5. 当前阶段的现实优先级
 
-- OCR 发票解析。
-- 多 relayer 高可用。
-- 复杂组织 RBAC。
-- 高级报表、告警自动化。
-- 钱包原生 typed rendering 深度集成。
+虽然批量 intent 和 agent draft 属于第一轮目标，但按当前仓库现状，优先级应为：
 
-## 4. 架构冻结与需求冻结
+1. 文档对齐
+2. 链上底座与测试补强
+3. 单笔 intent 离链闭环
+4. batch intent
+5. agent draft
 
-### Day 1-2 冻结项
+原因：
 
-1. 核心实体与字段。
-2. 状态机与状态约束。
-3. 模块接口契约。
-4. API 契约与错误码。
-5. 审批与审计字段。
+- 当前唯一成熟代码资产在链上程序和测试
+- 非链上模块尚无现成基础
+- 过早同时推进 batch、dashboard、agent 容易扩大面并拖慢主闭环
 
-### 冻结后变更规则
+## 6. 质量门禁与提交规则
 
-- 核心模块不做破坏式改造。
-- 新需求若不影响主链路正确性，进入后置池。
-- 任何核心变更需证明可以保持向后兼容。
+### 每个大阶段都必须遵守
 
-## 5. 12 天实施节奏
+1. 先更新文档，再开始对应阶段编码
+2. 按小改动提交 commit，不把多类改动揉成一个提交
+3. Rust/Anchor 改动必须带对应测试
+4. 本地凭据、钱包、环境文件不得推送到远端
 
-### Day 1-2：设计与冻结
+### 每个大阶段 push 前必须通过
 
-- 完成领域模型、状态机、接口契约。
-- 评审并冻结架构与核心需求。
+- `cargo fmt`
+- `cargo clippy`
+- `anchor build`
+- `cargo test`
+- `anchor test`
+- 当前阶段新增模块的对应测试
 
-### Day 3-5：后端核心落地
+### 每个大阶段 push 前必须经过 codex 审查
 
-- Onchain Program 实现核心账户和指令。
-- Control Plane 完成策略、intent、审批、执行查询 API。
+流程：
 
-### Day 6-8：执行与前端闭环
+1. 先本地通过全部检查
+2. 调用 codex 做代码审查
+3. 修复审查意见
+4. 再次调用 codex 审查
+5. 直到无阻断意见再 push
 
-- Relayer 实现自动执行、幂等和重试。
-- Dashboard 实现创建、审批、追踪、重试。
-- Agent draft 完成最小可用能力。
+## 7. 本地凭据与测试约定
 
-### Day 9-10：联调与稳定性
+- 测试钱包、临时凭据、环境配置仅保存在本地
+- 相关文件必须由 `.gitignore` 覆盖
+- 演示数据可以固化，但敏感信息不得提交
+- 若需要本地 relayer 或测试 signer，优先存放在仓库忽略路径下
 
-- 端到端联调。
-- 失败场景压测与恢复验证。
-- 修复阻断主流程的问题。
+## 8. 分阶段验收标准
 
-### Day 11-12：验收与演示
+### 阶段 0
 
-- 按验收清单逐项走查。
-- 固化 demo 数据和脚本。
-- 完成演示录制与文档收敛。
+- README、architecture、delivery-plan 与当前事实一致
+- 忽略规则覆盖本地凭据与环境文件
 
-## 6. 验收标准（核心功能）
+### 阶段 1
 
-1. Onchain Program
-- 非法状态跳转被拒绝。
-- 已确认 intent 不可重复执行成功。
+- 链上测试覆盖权限、状态迁移、边界与 retry 上限
+- 现有主流程测试继续通过
 
-2. Control Plane
-- API 与链上状态一致。
-- 每笔 intent 均可查询审批与执行记录。
+### 阶段 2
 
-3. Relayer
-- 自动执行 approved intent 成功。
-- 失败可重试并保留完整失败原因。
+- Control Plane API 与链上状态一致
+- 可以查询并编排基础 intent 流程
+- 审计记录可追踪
 
-4. Dashboard
-- 可读审批字段完整（recipient/amount/mint/memo/reference）。
-- 全状态可视化、支持失败重试入口。
+### 阶段 3
 
-5. Agent Adapter
-- 输出 draft 必须符合 schema。
-- 无人工审批不可执行。
+- Relayer 可自动执行 approved intent
+- 失败可重试并保留失败原因
+- Indexer/回写层能形成清晰时间线
 
-## 7. Demo 必测脚本（必须全通）
+### 阶段 4
 
-1. 创建 policy。
-2. 创建 1 笔单笔 intent + 1 笔批量 intent。
-3. 至少 1 笔由 AI draft 生成。
-4. 完成人工审批。
-5. Relayer 自动执行并回写状态。
-6. 演示 1 笔失败 + 重试成功。
-7. Dashboard 显示完整审计轨迹与 tx id。
+- Dashboard 可创建、审批、查看状态、触发重试
+- 人类可读字段完整展示
 
-## 8. 交付物清单
+### 阶段 5
 
-- 可运行链上程序（核心指令完备）
-- 可运行 Control Plane
-- 可运行 Relayer
-- 可运行 Dashboard
-- 可运行 Agent draft
-- README + architecture + delivery-plan
-- 端到端 demo 视频
+- Draft 输出符合 schema
+- 无人工确认不可进入执行路径
+
+### 阶段 6
+
+- README、docs、示例、demo 视频齐全
+- 单笔 intent 主闭环完整可演示
+- 最终交付物与文档一致
+
+## 9. Demo 必测脚本
+
+最终至少完成以下演示：
+
+1. 创建 policy
+2. 创建单笔 intent
+3. 完成人工审批
+4. Relayer 自动执行并回写状态
+5. 演示 1 笔失败 + 重试成功
+6. Dashboard 显示完整状态与 tx id
+7. 至少 1 笔 draft 由 Agent / CSV 生成并经人工确认后落链
+8. 最终文档与示例可独立复现流程

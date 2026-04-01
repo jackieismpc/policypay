@@ -6,3 +6,11 @@ node_modules
 test-ledger
 .yarn
 .claude
+.env
+.env.*
+!.env.example
+*.local
+wallets/
+keys/
+credentials/
+secrets/
