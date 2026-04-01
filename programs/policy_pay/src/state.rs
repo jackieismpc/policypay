@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::{MAX_FAILURE_REASON_LEN, MAX_MEMO_LEN, MAX_REFERENCE_LEN, MAX_SIGNATURE_LEN};
+use crate::constants::{
+    MAX_FAILURE_REASON_LEN, MAX_MEMO_LEN, MAX_REFERENCE_LEN, MAX_SIGNATURE_LEN,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
 pub enum IntentStatus {

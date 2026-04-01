@@ -113,7 +113,7 @@ pub mod policy_pay {
 
     pub fn execute_intent(ctx: Context<ExecuteIntent>, tx_signature: String) -> Result<()> {
         ensure_authority(ctx.accounts.executor.key(), ctx.accounts.policy.authority)?;
-        validate_non_empty_text(&tx_signature, MAX_SIGNATURE_LEN)?;
+        validate_signature(&tx_signature)?;
 
         let payment_intent = &mut ctx.accounts.payment_intent;
         require!(
@@ -332,6 +332,17 @@ fn validate_text(value: &str, max_len: usize) -> Result<()> {
 }
 
 fn validate_non_empty_text(value: &str, max_len: usize) -> Result<()> {
-    require!(!value.trim().is_empty(), PolicyPayError::MissingFailureReason);
+    require!(
+        !value.trim().is_empty(),
+        PolicyPayError::MissingFailureReason
+    );
     validate_text(value, max_len)
+}
+
+fn validate_signature(signature: &str) -> Result<()> {
+    require!(
+        !signature.trim().is_empty(),
+        PolicyPayError::EmptyExecutionSignature
+    );
+    validate_text(signature, MAX_SIGNATURE_LEN)
 }

@@ -1,12 +1,11 @@
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
 import { expect } from "chai";
 
 describe("policy_pay", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.policyPay as Program;
+  const program = anchor.workspace.policyPay as any;
 
   const mint = anchor.web3.Keypair.generate().publicKey;
   const allowedRecipient = anchor.web3.Keypair.generate().publicKey;

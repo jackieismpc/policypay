@@ -16,6 +16,8 @@ pub enum PolicyPayError {
     InvalidStatusTransition,
     #[msg("Input text exceeds allowed length")]
     TextTooLong,
+    #[msg("Execution signature cannot be empty")]
+    EmptyExecutionSignature,
     #[msg("Failure reason is required when settling as failed")]
     MissingFailureReason,
     #[msg("Retry limit has been reached")]
