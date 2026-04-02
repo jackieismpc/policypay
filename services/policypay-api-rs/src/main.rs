@@ -1,5 +1,8 @@
+mod chain_client;
+
 use std::{env, fs, net::SocketAddr, path::Path};
 
+use anyhow::anyhow;
 use axum::{
     extract::{Path as AxumPath, Query, State},
     http::{HeaderMap, StatusCode},
@@ -8,7 +11,6 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -16,13 +18,68 @@ use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use tracing::{error, info};
 use uuid::Uuid;
 
+use crate::chain_client::{
+    AddBatchItemInput, ApproveBatchInput, ApproveIntentInput, BatchActionInput, ChainClient,
+    CreateBatchInput, CreateIntentInput, CreatePolicyInput, IntentActionInput,
+};
+
 const DASHBOARD_HTML: &str = include_str!("../../../app/static/dashboard.html");
 
 #[derive(Clone)]
 struct AppState {
     pool: SqlitePool,
-    http: reqwest::Client,
-    legacy_control_plane_base_url: String,
+    chain: ChainClient,
+    api_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PolicyOnlyInput {
+    policy: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApproveOnlyInput {
+    policy: String,
+    #[serde(rename = "approvalDigest")]
+    approval_digest: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchCreateCompatItem {
+    #[serde(rename = "intentId")]
+    intent_id: u64,
+    recipient: String,
+    amount: u64,
+    memo: String,
+    reference: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchCreateCompatInput {
+    policy: String,
+    mode: Option<String>,
+    items: Vec<BatchCreateCompatItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchApproveCompatInput {
+    policy: String,
+    mode: Option<String>,
+    #[serde(rename = "intentIds")]
+    intent_ids: Vec<u64>,
+    #[serde(rename = "approvalDigest")]
+    approval_digest: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Serialize)]
+struct BatchCompatResult {
+    #[serde(rename = "intentId")]
+    intent_id: u64,
+    status: String,
+    signature: Option<String>,
+    #[serde(rename = "paymentIntent")]
+    payment_intent: Option<String>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,8 +172,20 @@ async fn main() -> anyhow::Result<()> {
     let sqlite_path =
         env::var("POLICYPAY_SQLITE_PATH").unwrap_or_else(|_| "./data/policypay.sqlite".to_string());
 
-    let legacy_control_plane_base_url = env::var("LEGACY_CONTROL_PLANE_BASE_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:24010".to_string());
+    let rpc_url = env::var("POLICYPAY_RPC_URL")
+        .or_else(|_| env::var("SOLANA_RPC_URL"))
+        .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
+
+    let wallet_path = env::var("POLICYPAY_WALLET_PATH")
+        .or_else(|_| env::var("ANCHOR_WALLET"))
+        .unwrap_or_else(|_| "./wallets/localnet.json".to_string());
+
+    let program_id = env::var("POLICY_PAY_PROGRAM_ID").ok();
+
+    let api_key = env::var("POLICYPAY_API_KEY")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
     ensure_parent_dir(&sqlite_path)?;
 
@@ -126,16 +195,19 @@ async fn main() -> anyhow::Result<()> {
     let pool = SqlitePool::connect_with(connect_options).await?;
     init_db(&pool).await?;
 
+    let chain = ChainClient::new(&rpc_url, &wallet_path, program_id.as_deref())?;
+
     let state = AppState {
         pool,
-        http: reqwest::Client::new(),
-        legacy_control_plane_base_url,
+        chain,
+        api_key,
     };
 
-    let app = Router::new()
-        .route("/", get(dashboard_page))
-        .route("/health", get(health))
+    let api_router = Router::new()
+        .route("/openapi.json", get(openapi_spec))
+        .route("/summary", get(get_summary))
         .route("/audit-logs", get(get_audit_logs))
+        .route("/policies", post(create_policy))
         .route("/policies/:mint", get(get_policy_by_mint))
         .route(
             "/policies/:policy/intents/:intent_id",
@@ -148,8 +220,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/intents/:intent_id/approve", post(approve_intent))
         .route("/intents/:intent_id/cancel", post(cancel_intent))
         .route("/intents/:intent_id/retry", post(retry_intent))
-        .route("/intents/batch", post(batch_create_intents_legacy))
-        .route("/intents/batch/approve", post(batch_approve_intents_legacy))
+        .route("/intents/batch", post(batch_create_intents))
+        .route("/intents/batch/approve", post(batch_approve_intents))
         .route("/batches", post(create_batch_intent_onchain))
         .route("/batches/:batch_id/items", post(add_batch_item_onchain))
         .route(
@@ -170,40 +242,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/executions/:intent_id/confirm", post(confirm_execution))
         .route("/timeline", get(list_timeline))
         .route("/timeline/chain", post(write_timeline_chain))
-        .route("/timeline/relayer", post(write_timeline_relayer))
-        .route("/api/summary", get(get_summary))
-        .route("/api/audit-logs", get(get_audit_logs))
-        .route("/api/executions", get(list_executions))
-        .route("/api/timeline", get(list_timeline))
-        .route("/api/intents", post(create_intent))
-        .route("/api/intents/draft", post(create_draft_intent))
-        .route("/api/intents/:intent_id/submit", post(submit_draft_intent))
-        .route("/api/intents/:intent_id/approve", post(approve_intent))
-        .route("/api/intents/:intent_id/cancel", post(cancel_intent))
-        .route("/api/intents/:intent_id/retry", post(retry_intent))
-        .route("/api/intents/batch", post(batch_create_intents_legacy))
-        .route(
-            "/api/intents/batch/approve",
-            post(batch_approve_intents_legacy),
-        )
-        .route("/api/batches", post(create_batch_intent_onchain))
-        .route("/api/batches/:batch_id/items", post(add_batch_item_onchain))
-        .route(
-            "/api/batches/:batch_id/submit",
-            post(submit_batch_for_approval_onchain),
-        )
-        .route(
-            "/api/batches/:batch_id/approve",
-            post(approve_batch_intent_onchain),
-        )
-        .route(
-            "/api/batches/:batch_id/cancel",
-            post(cancel_batch_intent_onchain),
-        )
-        .route(
-            "/api/policies/:policy/batches/:batch_id",
-            get(get_policy_batch),
-        )
+        .route("/timeline/relayer", post(write_timeline_relayer));
+
+    let app = Router::new()
+        .route("/", get(dashboard_page))
+        .route("/health", get(health))
+        .merge(api_router.clone())
+        .nest("/api", api_router.clone())
+        .nest("/api/v1", api_router)
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -301,6 +347,45 @@ async fn init_db(pool: &SqlitePool) -> anyhow::Result<()> {
 
 fn json_error(status: StatusCode, message: impl Into<String>) -> Response {
     (status, Json(json!({ "error": message.into() }))).into_response()
+}
+
+fn read_api_key(headers: &HeaderMap) -> Option<String> {
+    if let Some(value) = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        return Some(value.to_string());
+    }
+
+    headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn ensure_write_auth(state: &AppState, headers: &HeaderMap) -> Option<Response> {
+    let Some(expected_key) = &state.api_key else {
+        return None;
+    };
+
+    let Some(provided_key) = read_api_key(headers) else {
+        return Some(json_error(
+            StatusCode::UNAUTHORIZED,
+            "missing api key (x-api-key or Authorization: Bearer ...)",
+        ));
+    };
+
+    if &provided_key == expected_key {
+        None
+    } else {
+        Some(json_error(StatusCode::UNAUTHORIZED, "invalid api key"))
+    }
 }
 
 fn idempotency_key(headers: &HeaderMap) -> Option<String> {
@@ -411,51 +496,37 @@ async fn put_idempotent_cached(
     Ok(())
 }
 
-async fn proxy_control_plane(
-    state: &AppState,
-    method: Method,
-    path: &str,
-    body: Option<&Value>,
-) -> anyhow::Result<(StatusCode, Value)> {
-    let url = format!(
-        "{}/{}",
-        state.legacy_control_plane_base_url.trim_end_matches('/'),
-        path.trim_start_matches('/')
-    );
+async fn onchain_read<F>(state: AppState, operation: F) -> Response
+where
+    F: FnOnce(ChainClient) -> anyhow::Result<Value> + Send + 'static,
+{
+    let chain = state.chain.clone();
 
-    let mut req = state.http.request(method, url);
-    if let Some(body) = body {
-        req = req.json(body);
-    }
-
-    let resp = req.send().await?;
-    let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-    let text = resp.text().await.unwrap_or_else(|_| "{}".to_string());
-    let parsed = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({ "error": text }));
-
-    Ok((status, parsed))
-}
-
-async fn proxy_read(state: AppState, path: String) -> Response {
-    match proxy_control_plane(&state, Method::GET, &path, None).await {
-        Ok((status, body)) => (status, Json(body)).into_response(),
-        Err(error) => {
-            error!("proxy read failed: {}", error);
-            json_error(
-                StatusCode::BAD_GATEWAY,
-                format!("proxy read failed: {error}"),
-            )
-        }
+    match tokio::task::spawn_blocking(move || operation(chain)).await {
+        Ok(Ok(value)) => (StatusCode::OK, Json(value)).into_response(),
+        Ok(Err(error)) => json_error(StatusCode::BAD_REQUEST, error.to_string()),
+        Err(error) => json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("join on read task failed: {error}"),
+        ),
     }
 }
 
-async fn proxy_write_with_audit_and_idempotency(
+async fn onchain_write_with_audit_and_idempotency<F>(
     state: AppState,
     headers: HeaderMap,
     action: &'static str,
     path: String,
     body: Value,
-) -> Response {
+    operation: F,
+) -> Response
+where
+    F: FnOnce(ChainClient, Value) -> anyhow::Result<(StatusCode, Value)> + Send + 'static,
+{
+    if let Some(response) = ensure_write_auth(&state, &headers) {
+        return response;
+    }
+
     if let Err(error) = append_audit(&state, action, "requested", &body).await {
         error!("append requested audit failed: {}", error);
     }
@@ -487,8 +558,11 @@ async fn proxy_write_with_audit_and_idempotency(
         }
     }
 
-    match proxy_control_plane(&state, Method::POST, &path, Some(&body)).await {
-        Ok((status, resp_body)) => {
+    let chain = state.chain.clone();
+    let task_body = body.clone();
+
+    match tokio::task::spawn_blocking(move || operation(chain, task_body)).await {
+        Ok(Ok((status, resp_body))) => {
             let audit_status = if status.is_success() {
                 "succeeded"
             } else {
@@ -509,32 +583,107 @@ async fn proxy_write_with_audit_and_idempotency(
 
             (status, Json(resp_body)).into_response()
         }
-        Err(error) => {
+        Ok(Err(error)) => {
             let details = json!({ "error": error.to_string() });
             if let Err(log_error) = append_audit(&state, action, "failed", &details).await {
                 error!("append failure audit failed: {}", log_error);
             }
 
-            json_error(
-                StatusCode::BAD_GATEWAY,
-                format!("proxy write failed: {error}"),
-            )
+            json_error(StatusCode::BAD_REQUEST, error.to_string())
         }
+        Err(error) => json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("join on write task failed: {error}"),
+        ),
+    }
+}
+
+fn parse_approval_digest(input: Option<Vec<u8>>) -> anyhow::Result<[u8; 32]> {
+    let bytes = input.unwrap_or_else(|| vec![0_u8; 32]);
+    if bytes.len() != 32 {
+        return Err(anyhow!("approvalDigest must be an array of 32 bytes"));
+    }
+
+    let mut digest = [0_u8; 32];
+    digest.copy_from_slice(&bytes);
+    Ok(digest)
+}
+
+fn parse_compat_batch_mode(mode: Option<&str>) -> &'static str {
+    match mode {
+        Some("continue-on-error") => "continue-on-error",
+        _ => "abort-on-error",
     }
 }
 
 async fn health(State(state): State<AppState>) -> impl IntoResponse {
-    let legacy_ok = proxy_control_plane(&state, Method::GET, "/health", None)
+    let chain = state.chain.clone();
+    let chain_healthy = tokio::task::spawn_blocking(move || chain.ping())
         .await
-        .map(|(status, _)| status.is_success())
-        .unwrap_or(false);
+        .ok()
+        .and_then(Result::ok)
+        .is_some();
 
     Json(json!({
         "ok": true,
         "runtime": "tokio+axum",
-        "legacyControlPlane": {
-            "baseUrl": state.legacy_control_plane_base_url,
-            "healthy": legacy_ok
+        "chain": {
+            "programId": state.chain.program_id().to_string(),
+            "authority": state.chain.authority().to_string(),
+            "healthy": chain_healthy
+        },
+        "storage": {
+            "driver": "sqlite"
+        },
+        "auth": {
+            "apiKeyEnabled": state.api_key.is_some()
+        }
+    }))
+}
+
+async fn openapi_spec() -> impl IntoResponse {
+    Json(json!({
+        "openapi": "3.0.3",
+        "info": {
+            "title": "PolicyPay Unified API",
+            "version": "1.0.0",
+            "description": "Rust (tokio + axum) unified entry for policy/intent/batch workflows"
+        },
+        "servers": [
+            { "url": "/api", "description": "Default" },
+            { "url": "/api/v1", "description": "Versioned" }
+        ],
+        "components": {
+            "securitySchemes": {
+                "ApiKeyHeader": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "x-api-key"
+                },
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer"
+                }
+            }
+        },
+        "paths": {
+            "/health": { "get": { "summary": "Health check" } },
+            "/intents": { "post": { "summary": "Create intent" } },
+            "/intents/draft": { "post": { "summary": "Create draft intent" } },
+            "/intents/{intentId}/submit": { "post": { "summary": "Submit draft intent" } },
+            "/intents/{intentId}/approve": { "post": { "summary": "Approve intent" } },
+            "/intents/{intentId}/cancel": { "post": { "summary": "Cancel intent" } },
+            "/intents/{intentId}/retry": { "post": { "summary": "Retry intent" } },
+            "/intents/batch": { "post": { "summary": "Compatibility batch create" } },
+            "/intents/batch/approve": { "post": { "summary": "Compatibility batch approve" } },
+            "/batches": { "post": { "summary": "Create batch intent" } },
+            "/batches/{batchId}/items": { "post": { "summary": "Add batch item" } },
+            "/batches/{batchId}/submit": { "post": { "summary": "Submit batch for approval" } },
+            "/batches/{batchId}/approve": { "post": { "summary": "Approve batch intent" } },
+            "/batches/{batchId}/cancel": { "post": { "summary": "Cancel batch intent" } },
+            "/audit-logs": { "get": { "summary": "List audit logs" } },
+            "/executions": { "get": { "summary": "List executions" }, "post": { "summary": "Create simulated execution" } },
+            "/timeline": { "get": { "summary": "List timeline" } }
         }
     }))
 }
@@ -581,21 +730,42 @@ async fn get_policy_by_mint(
     State(state): State<AppState>,
     AxumPath(mint): AxumPath<String>,
 ) -> Response {
-    proxy_read(state, format!("/policies/{mint}")).await
+    onchain_read(state, move |chain| chain.fetch_policy_by_mint(&mint)).await
 }
 
 async fn get_policy_intent(
     State(state): State<AppState>,
-    AxumPath((policy, intent_id)): AxumPath<(String, i64)>,
+    AxumPath((policy, intent_id)): AxumPath<(String, u64)>,
 ) -> Response {
-    proxy_read(state, format!("/policies/{policy}/intents/{intent_id}")).await
+    onchain_read(state, move |chain| chain.fetch_intent(&policy, intent_id)).await
 }
 
 async fn get_policy_batch(
     State(state): State<AppState>,
-    AxumPath((policy, batch_id)): AxumPath<(String, i64)>,
+    AxumPath((policy, batch_id)): AxumPath<(String, u64)>,
 ) -> Response {
-    proxy_read(state, format!("/policies/{policy}/batches/{batch_id}")).await
+    onchain_read(state, move |chain| chain.fetch_batch(&policy, batch_id)).await
+}
+
+async fn create_policy(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Response {
+    onchain_write_with_audit_and_idempotency(
+        state,
+        headers,
+        "create_policy",
+        "/policies".to_string(),
+        payload,
+        move |chain, body| {
+            let input: CreatePolicyInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid create policy payload: {e}"))?;
+            let value = chain.create_policy(input)?;
+            Ok((StatusCode::CREATED, value))
+        },
+    )
+    .await
 }
 
 async fn create_intent(
@@ -603,12 +773,18 @@ async fn create_intent(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "create_intent",
         "/intents".to_string(),
         payload,
+        move |chain, body| {
+            let input: CreateIntentInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid create intent payload: {e}"))?;
+            let value = chain.create_intent(input)?;
+            Ok((StatusCode::CREATED, value))
+        },
     )
     .await
 }
@@ -618,12 +794,18 @@ async fn create_draft_intent(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "create_draft_intent",
         "/intents/draft".to_string(),
         payload,
+        move |chain, body| {
+            let input: CreateIntentInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid create draft intent payload: {e}"))?;
+            let value = chain.create_draft_intent(input)?;
+            Ok((StatusCode::CREATED, value))
+        },
     )
     .await
 }
@@ -631,15 +813,24 @@ async fn create_draft_intent(
 async fn submit_draft_intent(
     State(state): State<AppState>,
     headers: HeaderMap,
-    AxumPath(intent_id): AxumPath<i64>,
+    AxumPath(intent_id): AxumPath<u64>,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "submit_draft_intent",
         format!("/intents/{intent_id}/submit"),
         payload,
+        move |chain, body| {
+            let input: PolicyOnlyInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid submit draft payload: {e}"))?;
+            let value = chain.submit_draft_intent(IntentActionInput {
+                policy: input.policy,
+                intent_id,
+            })?;
+            Ok((StatusCode::OK, value))
+        },
     )
     .await
 }
@@ -647,15 +838,27 @@ async fn submit_draft_intent(
 async fn approve_intent(
     State(state): State<AppState>,
     headers: HeaderMap,
-    AxumPath(intent_id): AxumPath<i64>,
+    AxumPath(intent_id): AxumPath<u64>,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "approve_intent",
         format!("/intents/{intent_id}/approve"),
         payload,
+        move |chain, body| {
+            let input: ApproveOnlyInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid approve intent payload: {e}"))?;
+
+            let value = chain.approve_intent(ApproveIntentInput {
+                policy: input.policy,
+                intent_id,
+                approval_digest: parse_approval_digest(input.approval_digest)?,
+            })?;
+
+            Ok((StatusCode::OK, value))
+        },
     )
     .await
 }
@@ -663,15 +866,24 @@ async fn approve_intent(
 async fn cancel_intent(
     State(state): State<AppState>,
     headers: HeaderMap,
-    AxumPath(intent_id): AxumPath<i64>,
+    AxumPath(intent_id): AxumPath<u64>,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "cancel_intent",
         format!("/intents/{intent_id}/cancel"),
         payload,
+        move |chain, body| {
+            let input: PolicyOnlyInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid cancel intent payload: {e}"))?;
+            let value = chain.cancel_intent(IntentActionInput {
+                policy: input.policy,
+                intent_id,
+            })?;
+            Ok((StatusCode::OK, value))
+        },
     )
     .await
 }
@@ -679,45 +891,204 @@ async fn cancel_intent(
 async fn retry_intent(
     State(state): State<AppState>,
     headers: HeaderMap,
-    AxumPath(intent_id): AxumPath<i64>,
+    AxumPath(intent_id): AxumPath<u64>,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "retry_intent",
         format!("/intents/{intent_id}/retry"),
         payload,
+        move |chain, body| {
+            let input: PolicyOnlyInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid retry intent payload: {e}"))?;
+            let value = chain.retry_intent(IntentActionInput {
+                policy: input.policy,
+                intent_id,
+            })?;
+            Ok((StatusCode::OK, value))
+        },
     )
     .await
 }
 
-async fn batch_create_intents_legacy(
+async fn batch_create_intents(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "batch_create_intents",
         "/intents/batch".to_string(),
         payload,
+        move |chain, body| {
+            let payload: BatchCreateCompatInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid compatibility batch-create payload: {e}"))?;
+
+            if payload.items.is_empty() {
+                return Err(anyhow!("items must be a non-empty array"));
+            }
+
+            let mode = parse_compat_batch_mode(payload.mode.as_deref());
+            let mut results = Vec::with_capacity(payload.items.len());
+
+            for item in payload.items {
+                let result = chain.create_intent(CreateIntentInput {
+                    policy: payload.policy.clone(),
+                    intent_id: item.intent_id,
+                    recipient: item.recipient,
+                    amount: item.amount,
+                    memo: item.memo,
+                    reference: item.reference,
+                });
+
+                match result {
+                    Ok(value) => {
+                        results.push(BatchCompatResult {
+                            intent_id: item.intent_id,
+                            status: "succeeded".to_string(),
+                            signature: value
+                                .get("signature")
+                                .and_then(Value::as_str)
+                                .map(ToString::to_string),
+                            payment_intent: value
+                                .get("paymentIntent")
+                                .and_then(Value::as_str)
+                                .map(ToString::to_string),
+                            error: None,
+                        });
+                    }
+                    Err(error) => {
+                        results.push(BatchCompatResult {
+                            intent_id: item.intent_id,
+                            status: "failed".to_string(),
+                            signature: None,
+                            payment_intent: None,
+                            error: Some(error.to_string()),
+                        });
+
+                        if mode == "abort-on-error" {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let succeeded = results.iter().filter(|r| r.status == "succeeded").count();
+            let failed = results.len().saturating_sub(succeeded);
+
+            let response = json!({
+                "policy": payload.policy,
+                "summary": {
+                    "mode": mode,
+                    "total": succeeded + failed,
+                    "processed": succeeded + failed,
+                    "succeeded": succeeded,
+                    "failed": failed
+                },
+                "results": results,
+            });
+
+            let status = if failed == 0 {
+                StatusCode::CREATED
+            } else {
+                StatusCode::MULTI_STATUS
+            };
+
+            Ok((status, response))
+        },
     )
     .await
 }
 
-async fn batch_approve_intents_legacy(
+async fn batch_approve_intents(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "batch_approve_intents",
         "/intents/batch/approve".to_string(),
         payload,
+        move |chain, body| {
+            let payload: BatchApproveCompatInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid compatibility batch-approve payload: {e}"))?;
+
+            if payload.intent_ids.is_empty() {
+                return Err(anyhow!("intentIds must be a non-empty array"));
+            }
+
+            let mode = parse_compat_batch_mode(payload.mode.as_deref());
+            let digest = parse_approval_digest(payload.approval_digest)?;
+            let mut results = Vec::with_capacity(payload.intent_ids.len());
+
+            for intent_id in payload.intent_ids {
+                let result = chain.approve_intent(ApproveIntentInput {
+                    policy: payload.policy.clone(),
+                    intent_id,
+                    approval_digest: digest,
+                });
+
+                match result {
+                    Ok(value) => {
+                        results.push(BatchCompatResult {
+                            intent_id,
+                            status: "succeeded".to_string(),
+                            signature: value
+                                .get("signature")
+                                .and_then(Value::as_str)
+                                .map(ToString::to_string),
+                            payment_intent: value
+                                .get("paymentIntent")
+                                .and_then(Value::as_str)
+                                .map(ToString::to_string),
+                            error: None,
+                        });
+                    }
+                    Err(error) => {
+                        results.push(BatchCompatResult {
+                            intent_id,
+                            status: "failed".to_string(),
+                            signature: None,
+                            payment_intent: None,
+                            error: Some(error.to_string()),
+                        });
+
+                        if mode == "abort-on-error" {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let succeeded = results.iter().filter(|r| r.status == "succeeded").count();
+            let failed = results.len().saturating_sub(succeeded);
+
+            let response = json!({
+                "policy": payload.policy,
+                "summary": {
+                    "mode": mode,
+                    "total": succeeded + failed,
+                    "processed": succeeded + failed,
+                    "succeeded": succeeded,
+                    "failed": failed
+                },
+                "results": results,
+            });
+
+            let status = if failed == 0 {
+                StatusCode::OK
+            } else {
+                StatusCode::MULTI_STATUS
+            };
+
+            Ok((status, response))
+        },
     )
     .await
 }
@@ -727,12 +1098,18 @@ async fn create_batch_intent_onchain(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "create_batch_intent_onchain",
         "/batches".to_string(),
         payload,
+        move |chain, body| {
+            let input: CreateBatchInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid create batch payload: {e}"))?;
+            let value = chain.create_batch_intent(input)?;
+            Ok((StatusCode::CREATED, value))
+        },
     )
     .await
 }
@@ -740,15 +1117,21 @@ async fn create_batch_intent_onchain(
 async fn add_batch_item_onchain(
     State(state): State<AppState>,
     headers: HeaderMap,
-    AxumPath(batch_id): AxumPath<i64>,
+    AxumPath(batch_id): AxumPath<u64>,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "add_batch_item_onchain",
         format!("/batches/{batch_id}/items"),
         payload,
+        move |chain, body| {
+            let input: AddBatchItemInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid add batch item payload: {e}"))?;
+            let value = chain.add_batch_item(AddBatchItemInput { batch_id, ..input })?;
+            Ok((StatusCode::CREATED, value))
+        },
     )
     .await
 }
@@ -756,15 +1139,24 @@ async fn add_batch_item_onchain(
 async fn submit_batch_for_approval_onchain(
     State(state): State<AppState>,
     headers: HeaderMap,
-    AxumPath(batch_id): AxumPath<i64>,
+    AxumPath(batch_id): AxumPath<u64>,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "submit_batch_for_approval_onchain",
         format!("/batches/{batch_id}/submit"),
         payload,
+        move |chain, body| {
+            let input: PolicyOnlyInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid submit batch payload: {e}"))?;
+            let value = chain.submit_batch_for_approval(BatchActionInput {
+                policy: input.policy,
+                batch_id,
+            })?;
+            Ok((StatusCode::OK, value))
+        },
     )
     .await
 }
@@ -772,15 +1164,25 @@ async fn submit_batch_for_approval_onchain(
 async fn approve_batch_intent_onchain(
     State(state): State<AppState>,
     headers: HeaderMap,
-    AxumPath(batch_id): AxumPath<i64>,
+    AxumPath(batch_id): AxumPath<u64>,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "approve_batch_intent_onchain",
         format!("/batches/{batch_id}/approve"),
         payload,
+        move |chain, body| {
+            let input: ApproveOnlyInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid approve batch payload: {e}"))?;
+            let value = chain.approve_batch_intent(ApproveBatchInput {
+                policy: input.policy,
+                batch_id,
+                approval_digest: parse_approval_digest(input.approval_digest)?,
+            })?;
+            Ok((StatusCode::OK, value))
+        },
     )
     .await
 }
@@ -788,15 +1190,24 @@ async fn approve_batch_intent_onchain(
 async fn cancel_batch_intent_onchain(
     State(state): State<AppState>,
     headers: HeaderMap,
-    AxumPath(batch_id): AxumPath<i64>,
+    AxumPath(batch_id): AxumPath<u64>,
     Json(payload): Json<Value>,
 ) -> Response {
-    proxy_write_with_audit_and_idempotency(
+    onchain_write_with_audit_and_idempotency(
         state,
         headers,
         "cancel_batch_intent_onchain",
         format!("/batches/{batch_id}/cancel"),
         payload,
+        move |chain, body| {
+            let input: PolicyOnlyInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid cancel batch payload: {e}"))?;
+            let value = chain.cancel_batch_intent(BatchActionInput {
+                policy: input.policy,
+                batch_id,
+            })?;
+            Ok((StatusCode::OK, value))
+        },
     )
     .await
 }
@@ -987,8 +1398,13 @@ async fn get_execution_by_intent(
 
 async fn create_execution(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(task): Json<ExecutionTask>,
 ) -> Response {
+    if let Some(response) = ensure_write_auth(&state, &headers) {
+        return response;
+    }
+
     match process_execution_task(&state, &task).await {
         Ok(record) => (StatusCode::CREATED, Json(json!(record))).into_response(),
         Err(error) => json_error(StatusCode::BAD_REQUEST, error),
@@ -997,8 +1413,13 @@ async fn create_execution(
 
 async fn create_executions_batch(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<BatchExecutionInput>,
 ) -> Response {
+    if let Some(response) = ensure_write_auth(&state, &headers) {
+        return response;
+    }
+
     if payload.items.is_empty() {
         return json_error(StatusCode::BAD_REQUEST, "items must be a non-empty array");
     }
@@ -1065,8 +1486,13 @@ async fn create_executions_batch(
 
 async fn confirm_execution(
     State(state): State<AppState>,
+    headers: HeaderMap,
     AxumPath(intent_id): AxumPath<i64>,
 ) -> Response {
+    if let Some(response) = ensure_write_auth(&state, &headers) {
+        return response;
+    }
+
     let row = sqlx::query(
         r#"
         SELECT intent_id, payment_intent, status, signature, failure_reason, updated_at
@@ -1227,8 +1653,13 @@ async fn append_timeline(
 
 async fn write_timeline_chain(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<TimelineWriteInput>,
 ) -> Response {
+    if let Some(response) = ensure_write_auth(&state, &headers) {
+        return response;
+    }
+
     match append_timeline(&state, "chain", payload).await {
         Ok(entry) => (StatusCode::CREATED, Json(entry)).into_response(),
         Err(error) => json_error(StatusCode::BAD_REQUEST, error),
@@ -1237,8 +1668,13 @@ async fn write_timeline_chain(
 
 async fn write_timeline_relayer(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<TimelineWriteInput>,
 ) -> Response {
+    if let Some(response) = ensure_write_auth(&state, &headers) {
+        return response;
+    }
+
     match append_timeline(&state, "relayer", payload).await {
         Ok(entry) => (StatusCode::CREATED, Json(entry)).into_response(),
         Err(error) => json_error(StatusCode::BAD_REQUEST, error),
@@ -1265,9 +1701,10 @@ async fn get_summary(State(state): State<AppState>) -> Response {
         StatusCode::OK,
         Json(json!({
             "ok": true,
-            "stage": "rust-api-gateway",
+            "stage": "rust-unified-api",
             "integration": {
-                "controlPlane": true,
+                "controlPlane": false,
+                "rustOnchainEntry": true,
                 "relayer": true,
                 "indexer": true
             },
@@ -1315,6 +1752,32 @@ mod tests {
             parse_execution_mode(Some("anything-else")),
             "abort-on-error"
         );
+    }
+
+    #[test]
+    fn parse_approval_digest_defaults_to_zeroes() {
+        let digest = parse_approval_digest(None).expect("default digest");
+        assert_eq!(digest, [0_u8; 32]);
+    }
+
+    #[test]
+    fn parse_approval_digest_rejects_invalid_length() {
+        let result = parse_approval_digest(Some(vec![1_u8, 2_u8, 3_u8]));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_api_key_from_header_and_bearer() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_static("key-1"));
+        assert_eq!(read_api_key(&headers), Some("key-1".to_string()));
+
+        headers.remove("x-api-key");
+        headers.insert(
+            "authorization",
+            HeaderValue::from_static("Bearer bearer-token"),
+        );
+        assert_eq!(read_api_key(&headers), Some("bearer-token".to_string()));
     }
 
     #[test]
