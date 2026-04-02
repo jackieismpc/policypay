@@ -27,6 +27,16 @@ describe("policy_pay", () => {
       program.programId
     )[0];
 
+  const batchPda = (policy: anchor.web3.PublicKey, batchId: BN) =>
+    anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("batch"),
+        policy.toBuffer(),
+        batchId.toArrayLike(Buffer, "le", 8),
+      ],
+      program.programId
+    )[0];
+
   const statusName = (status: Record<string, unknown>) =>
     Object.keys(status)[0];
 
@@ -165,6 +175,74 @@ describe("policy_pay", () => {
     await builder.rpc();
 
     return { intentId, paymentIntent };
+  };
+
+  const createDraftIntent = async (params: {
+    policy: anchor.web3.PublicKey;
+    recipient: anchor.web3.PublicKey;
+    amount?: BN;
+    memo?: string;
+    reference?: string;
+    intentId?: BN;
+    creator?: anchor.web3.PublicKey;
+    signer?: anchor.web3.Keypair;
+  }) => {
+    const intentId = params.intentId ?? new BN(Date.now());
+    const paymentIntent = intentPda(params.policy, intentId);
+    const creator = params.creator ?? provider.wallet.publicKey;
+
+    const builder = program.methods
+      .createDraftIntent(
+        intentId,
+        params.recipient,
+        params.amount ?? new BN(100),
+        params.memo ?? "invoice-draft",
+        params.reference ?? "ref-draft"
+      )
+      .accounts({
+        creator,
+        policy: params.policy,
+        paymentIntent,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      });
+
+    if (params.signer) {
+      builder.signers([params.signer]);
+    }
+
+    await builder.rpc();
+
+    return { intentId, paymentIntent };
+  };
+
+  const createBatchIntent = async (params: {
+    policy: anchor.web3.PublicKey;
+    batchId?: BN;
+    mode?:
+      | { abortOnError: Record<string, never> }
+      | { continueOnError: Record<string, never> };
+    creator?: anchor.web3.PublicKey;
+    signer?: anchor.web3.Keypair;
+  }) => {
+    const batchId = params.batchId ?? new BN(Date.now());
+    const batchIntent = batchPda(params.policy, batchId);
+    const creator = params.creator ?? provider.wallet.publicKey;
+
+    const builder = program.methods
+      .createBatchIntent(batchId, params.mode ?? { continueOnError: {} })
+      .accounts({
+        creator,
+        policy: params.policy,
+        batchIntent,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      });
+
+    if (params.signer) {
+      builder.signers([params.signer]);
+    }
+
+    await builder.rpc();
+    return { batchId, batchIntent };
   };
 
   it("creates policy and completes lifecycle with retry", async () => {
@@ -529,6 +607,396 @@ describe("policy_pay", () => {
         .signers([unauthorized])
         .rpc(),
       "Unauthorized"
+    );
+  });
+
+  it("supports single intent draft lifecycle onchain", async () => {
+    const { policy, allowedRecipient } = await createPolicy();
+    const { paymentIntent } = await createDraftIntent({
+      policy,
+      recipient: allowedRecipient,
+      intentId: new BN(40),
+      memo: "invoice-draft-40",
+      reference: "ref-draft-40",
+    });
+
+    let intent = await program.account.paymentIntent.fetch(paymentIntent);
+    expect(statusName(intent.status)).to.eq("draft");
+
+    await expectAnchorError(
+      program.methods
+        .approveIntent(Array(32).fill(1))
+        .accounts({
+          approver: provider.wallet.publicKey,
+          policy,
+          paymentIntent,
+        })
+        .rpc(),
+      "InvalidStatusTransition"
+    );
+
+    await program.methods
+      .submitDraftIntent()
+      .accounts({
+        submitter: provider.wallet.publicKey,
+        policy,
+        paymentIntent,
+      })
+      .rpc();
+
+    intent = await program.account.paymentIntent.fetch(paymentIntent);
+    expect(statusName(intent.status)).to.eq("pendingApproval");
+
+    await program.methods
+      .approveIntent(Array(32).fill(2))
+      .accounts({
+        approver: provider.wallet.publicKey,
+        policy,
+        paymentIntent,
+      })
+      .rpc();
+
+    intent = await program.account.paymentIntent.fetch(paymentIntent);
+    expect(statusName(intent.status)).to.eq("approved");
+  });
+
+  it("validates draft submit permissions and transitions", async () => {
+    const creator = anchor.web3.Keypair.generate();
+    const unauthorized = anchor.web3.Keypair.generate();
+    await fundKeypair(creator);
+    await fundKeypair(unauthorized);
+
+    const { policy, allowedRecipient } = await createPolicy();
+    const { paymentIntent } = await createDraftIntent({
+      policy,
+      recipient: allowedRecipient,
+      intentId: new BN(41),
+      creator: creator.publicKey,
+      signer: creator,
+      memo: "invoice-draft-41",
+      reference: "ref-draft-41",
+    });
+
+    await expectAnchorError(
+      program.methods
+        .submitDraftIntent()
+        .accounts({
+          submitter: unauthorized.publicKey,
+          policy,
+          paymentIntent,
+        })
+        .signers([unauthorized])
+        .rpc(),
+      "Unauthorized"
+    );
+
+    await program.methods
+      .submitDraftIntent()
+      .accounts({
+        submitter: provider.wallet.publicKey,
+        policy,
+        paymentIntent,
+      })
+      .rpc();
+
+    await expectAnchorError(
+      program.methods
+        .submitDraftIntent()
+        .accounts({
+          submitter: creator.publicKey,
+          policy,
+          paymentIntent,
+        })
+        .signers([creator])
+        .rpc(),
+      "InvalidStatusTransition"
+    );
+
+    const { paymentIntent: draftToCancel } = await createDraftIntent({
+      policy,
+      recipient: allowedRecipient,
+      intentId: new BN(42),
+      creator: creator.publicKey,
+      signer: creator,
+      memo: "invoice-draft-42",
+      reference: "ref-draft-42",
+    });
+
+    await program.methods
+      .cancelIntent()
+      .accounts({
+        canceler: creator.publicKey,
+        policy,
+        paymentIntent: draftToCancel,
+      })
+      .signers([creator])
+      .rpc();
+
+    const canceled = await program.account.paymentIntent.fetch(draftToCancel);
+    expect(statusName(canceled.status)).to.eq("cancelled");
+  });
+
+  it("supports batch draft lifecycle onchain", async () => {
+    const { policy, allowedRecipient } = await createPolicy();
+    const { batchIntent } = await createBatchIntent({
+      policy,
+      batchId: new BN(50),
+      mode: { continueOnError: {} },
+    });
+
+    let batch = await program.account.batchIntent.fetch(batchIntent);
+    expect(statusName(batch.status)).to.eq("draft");
+    expect(batch.items.length).to.eq(0);
+
+    await program.methods
+      .addBatchItem(
+        new BN(501),
+        allowedRecipient,
+        new BN(100),
+        "invoice-501",
+        "ref-501"
+      )
+      .accounts({
+        creator: provider.wallet.publicKey,
+        policy,
+        batchIntent,
+      })
+      .rpc();
+
+    await program.methods
+      .addBatchItem(
+        new BN(502),
+        allowedRecipient,
+        new BN(200),
+        "invoice-502",
+        "ref-502"
+      )
+      .accounts({
+        creator: provider.wallet.publicKey,
+        policy,
+        batchIntent,
+      })
+      .rpc();
+
+    batch = await program.account.batchIntent.fetch(batchIntent);
+    expect(batch.items.length).to.eq(2);
+    expect(statusName(batch.items[0].status)).to.eq("draft");
+
+    await program.methods
+      .submitBatchForApproval()
+      .accounts({
+        creator: provider.wallet.publicKey,
+        policy,
+        batchIntent,
+      })
+      .rpc();
+
+    batch = await program.account.batchIntent.fetch(batchIntent);
+    expect(statusName(batch.status)).to.eq("pendingApproval");
+    expect(statusName(batch.items[0].status)).to.eq("pendingApproval");
+    expect(statusName(batch.items[1].status)).to.eq("pendingApproval");
+
+    const approvalDigest = Array(32).fill(9);
+    await program.methods
+      .approveBatchIntent(approvalDigest)
+      .accounts({
+        approver: provider.wallet.publicKey,
+        policy,
+        batchIntent,
+      })
+      .rpc();
+
+    batch = await program.account.batchIntent.fetch(batchIntent);
+    expect(statusName(batch.status)).to.eq("approved");
+    expect(Array.from(batch.approvalDigest)).to.deep.eq(approvalDigest);
+    expect(statusName(batch.items[0].status)).to.eq("approved");
+    expect(statusName(batch.items[1].status)).to.eq("approved");
+
+    await program.methods
+      .cancelBatchIntent()
+      .accounts({
+        canceler: provider.wallet.publicKey,
+        policy,
+        batchIntent,
+      })
+      .rpc();
+
+    batch = await program.account.batchIntent.fetch(batchIntent);
+    expect(statusName(batch.status)).to.eq("cancelled");
+    expect(statusName(batch.items[0].status)).to.eq("cancelled");
+    expect(statusName(batch.items[1].status)).to.eq("cancelled");
+  });
+
+  it("validates batch permissions and transitions", async () => {
+    const creator = anchor.web3.Keypair.generate();
+    const unauthorized = anchor.web3.Keypair.generate();
+    await fundKeypair(creator);
+    await fundKeypair(unauthorized);
+
+    const { policy, allowedRecipient } = await createPolicy();
+    const { batchIntent } = await createBatchIntent({
+      policy,
+      batchId: new BN(51),
+      creator: creator.publicKey,
+      signer: creator,
+      mode: { abortOnError: {} },
+    });
+
+    await expectAnchorError(
+      program.methods
+        .addBatchItem(
+          new BN(601),
+          allowedRecipient,
+          new BN(100),
+          "invoice-601",
+          "ref-601"
+        )
+        .accounts({
+          creator: unauthorized.publicKey,
+          policy,
+          batchIntent,
+        })
+        .signers([unauthorized])
+        .rpc(),
+      "Unauthorized"
+    );
+
+    await program.methods
+      .addBatchItem(
+        new BN(601),
+        allowedRecipient,
+        new BN(100),
+        "invoice-601",
+        "ref-601"
+      )
+      .accounts({
+        creator: creator.publicKey,
+        policy,
+        batchIntent,
+      })
+      .signers([creator])
+      .rpc();
+
+    await expectAnchorError(
+      program.methods
+        .addBatchItem(
+          new BN(601),
+          allowedRecipient,
+          new BN(150),
+          "invoice-duplicate",
+          "ref-duplicate"
+        )
+        .accounts({
+          creator: creator.publicKey,
+          policy,
+          batchIntent,
+        })
+        .signers([creator])
+        .rpc(),
+      "DuplicateBatchIntentId"
+    );
+
+    await expectAnchorError(
+      program.methods
+        .addBatchItem(
+          new BN(602),
+          allowedRecipient,
+          new BN(0),
+          "invoice-602",
+          "ref-602"
+        )
+        .accounts({
+          creator: creator.publicKey,
+          policy,
+          batchIntent,
+        })
+        .signers([creator])
+        .rpc(),
+      "InvalidAmount"
+    );
+
+    await program.methods
+      .submitBatchForApproval()
+      .accounts({
+        creator: creator.publicKey,
+        policy,
+        batchIntent,
+      })
+      .signers([creator])
+      .rpc();
+
+    await expectAnchorError(
+      program.methods
+        .addBatchItem(
+          new BN(603),
+          allowedRecipient,
+          new BN(100),
+          "invoice-603",
+          "ref-603"
+        )
+        .accounts({
+          creator: creator.publicKey,
+          policy,
+          batchIntent,
+        })
+        .signers([creator])
+        .rpc(),
+      "InvalidBatchState"
+    );
+
+    await expectAnchorError(
+      program.methods
+        .approveBatchIntent(Array(32).fill(3))
+        .accounts({
+          approver: unauthorized.publicKey,
+          policy,
+          batchIntent,
+        })
+        .signers([unauthorized])
+        .rpc(),
+      "Unauthorized"
+    );
+
+    await program.methods
+      .approveBatchIntent(Array(32).fill(5))
+      .accounts({
+        approver: provider.wallet.publicKey,
+        policy,
+        batchIntent,
+      })
+      .rpc();
+
+    await expectAnchorError(
+      program.methods
+        .submitBatchForApproval()
+        .accounts({
+          creator: creator.publicKey,
+          policy,
+          batchIntent,
+        })
+        .signers([creator])
+        .rpc(),
+      "InvalidBatchState"
+    );
+
+    const { batchIntent: emptyBatchIntent } = await createBatchIntent({
+      policy,
+      batchId: new BN(52),
+      creator: creator.publicKey,
+      signer: creator,
+    });
+
+    await expectAnchorError(
+      program.methods
+        .submitBatchForApproval()
+        .accounts({
+          creator: creator.publicKey,
+          policy,
+          batchIntent: emptyBatchIntent,
+        })
+        .signers([creator])
+        .rpc(),
+      "EmptyBatch"
     );
   });
 

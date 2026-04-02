@@ -26,4 +26,12 @@ pub enum PolicyPayError {
     PolicyMismatch,
     #[msg("Allowed recipient must be set when whitelist is enabled")]
     MissingAllowedRecipient,
+    #[msg("Batch operation is not allowed in current state")]
+    InvalidBatchState,
+    #[msg("Batch cannot be submitted without items")]
+    EmptyBatch,
+    #[msg("Batch item limit reached")]
+    BatchItemLimitReached,
+    #[msg("Batch already contains this intent id")]
+    DuplicateBatchIntentId,
 }
