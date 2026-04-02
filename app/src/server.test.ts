@@ -61,3 +61,27 @@ test("dashboard summary endpoint responds", async () => {
     child.kill();
   }
 });
+
+test("dashboard page includes onchain batch workflow section", async () => {
+  const port = 4131;
+  const child = spawn(
+    process.execPath,
+    ["./node_modules/tsx/dist/cli.mjs", "app/src/server.ts"],
+    {
+      cwd: process.cwd(),
+      env: { ...process.env, DASHBOARD_PORT: String(port) },
+      stdio: "ignore",
+    }
+  );
+
+  try {
+    await waitForServer(port);
+    const response = await fetch(`http://127.0.0.1:${port}/`);
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /链上 BatchIntent 全流程/);
+  } finally {
+    child.kill();
+  }
+});
