@@ -45,44 +45,6 @@ struct ApproveOnlyInput {
 }
 
 #[derive(Debug, Deserialize)]
-struct BatchCreateCompatItem {
-    #[serde(rename = "intentId")]
-    intent_id: u64,
-    recipient: String,
-    amount: u64,
-    memo: String,
-    reference: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct BatchCreateCompatInput {
-    policy: String,
-    mode: Option<String>,
-    items: Vec<BatchCreateCompatItem>,
-}
-
-#[derive(Debug, Deserialize)]
-struct BatchApproveCompatInput {
-    policy: String,
-    mode: Option<String>,
-    #[serde(rename = "intentIds")]
-    intent_ids: Vec<u64>,
-    #[serde(rename = "approvalDigest")]
-    approval_digest: Option<Vec<u8>>,
-}
-
-#[derive(Debug, Serialize)]
-struct BatchCompatResult {
-    #[serde(rename = "intentId")]
-    intent_id: u64,
-    status: String,
-    signature: Option<String>,
-    #[serde(rename = "paymentIntent")]
-    payment_intent: Option<String>,
-    error: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
 struct ExecutionTask {
     policy: String,
     #[serde(rename = "intentId")]
@@ -220,8 +182,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/intents/:intent_id/approve", post(approve_intent))
         .route("/intents/:intent_id/cancel", post(cancel_intent))
         .route("/intents/:intent_id/retry", post(retry_intent))
-        .route("/intents/batch", post(batch_create_intents))
-        .route("/intents/batch/approve", post(batch_approve_intents))
         .route("/batches", post(create_batch_intent_onchain))
         .route("/batches/:batch_id/items", post(add_batch_item_onchain))
         .route(
@@ -247,8 +207,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(dashboard_page))
         .route("/health", get(health))
-        .merge(api_router.clone())
-        .nest("/api", api_router.clone())
+        .route("/openapi.json", get(openapi_spec))
         .nest("/api/v1", api_router)
         .with_state(state);
 
@@ -609,13 +568,6 @@ fn parse_approval_digest(input: Option<Vec<u8>>) -> anyhow::Result<[u8; 32]> {
     Ok(digest)
 }
 
-fn parse_compat_batch_mode(mode: Option<&str>) -> &'static str {
-    match mode {
-        Some("continue-on-error") => "continue-on-error",
-        _ => "abort-on-error",
-    }
-}
-
 async fn health(State(state): State<AppState>) -> impl IntoResponse {
     let chain = state.chain.clone();
     let chain_healthy = tokio::task::spawn_blocking(move || chain.ping())
@@ -649,10 +601,7 @@ async fn openapi_spec() -> impl IntoResponse {
             "version": "1.0.0",
             "description": "Rust (tokio + axum) unified entry for policy/intent/batch workflows"
         },
-        "servers": [
-            { "url": "/api", "description": "Default" },
-            { "url": "/api/v1", "description": "Versioned" }
-        ],
+        "servers": [{ "url": "/api/v1", "description": "Versioned" }],
         "components": {
             "securitySchemes": {
                 "ApiKeyHeader": {
@@ -674,8 +623,6 @@ async fn openapi_spec() -> impl IntoResponse {
             "/intents/{intentId}/approve": { "post": { "summary": "Approve intent" } },
             "/intents/{intentId}/cancel": { "post": { "summary": "Cancel intent" } },
             "/intents/{intentId}/retry": { "post": { "summary": "Retry intent" } },
-            "/intents/batch": { "post": { "summary": "Compatibility batch create" } },
-            "/intents/batch/approve": { "post": { "summary": "Compatibility batch approve" } },
             "/batches": { "post": { "summary": "Create batch intent" } },
             "/batches/{batchId}/items": { "post": { "summary": "Add batch item" } },
             "/batches/{batchId}/submit": { "post": { "summary": "Submit batch for approval" } },
@@ -908,186 +855,6 @@ async fn retry_intent(
                 intent_id,
             })?;
             Ok((StatusCode::OK, value))
-        },
-    )
-    .await
-}
-
-async fn batch_create_intents(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<Value>,
-) -> Response {
-    onchain_write_with_audit_and_idempotency(
-        state,
-        headers,
-        "batch_create_intents",
-        "/intents/batch".to_string(),
-        payload,
-        move |chain, body| {
-            let payload: BatchCreateCompatInput = serde_json::from_value(body)
-                .map_err(|e| anyhow!("invalid compatibility batch-create payload: {e}"))?;
-
-            if payload.items.is_empty() {
-                return Err(anyhow!("items must be a non-empty array"));
-            }
-
-            let mode = parse_compat_batch_mode(payload.mode.as_deref());
-            let mut results = Vec::with_capacity(payload.items.len());
-
-            for item in payload.items {
-                let result = chain.create_intent(CreateIntentInput {
-                    policy: payload.policy.clone(),
-                    intent_id: item.intent_id,
-                    recipient: item.recipient,
-                    amount: item.amount,
-                    memo: item.memo,
-                    reference: item.reference,
-                });
-
-                match result {
-                    Ok(value) => {
-                        results.push(BatchCompatResult {
-                            intent_id: item.intent_id,
-                            status: "succeeded".to_string(),
-                            signature: value
-                                .get("signature")
-                                .and_then(Value::as_str)
-                                .map(ToString::to_string),
-                            payment_intent: value
-                                .get("paymentIntent")
-                                .and_then(Value::as_str)
-                                .map(ToString::to_string),
-                            error: None,
-                        });
-                    }
-                    Err(error) => {
-                        results.push(BatchCompatResult {
-                            intent_id: item.intent_id,
-                            status: "failed".to_string(),
-                            signature: None,
-                            payment_intent: None,
-                            error: Some(error.to_string()),
-                        });
-
-                        if mode == "abort-on-error" {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            let succeeded = results.iter().filter(|r| r.status == "succeeded").count();
-            let failed = results.len().saturating_sub(succeeded);
-
-            let response = json!({
-                "policy": payload.policy,
-                "summary": {
-                    "mode": mode,
-                    "total": succeeded + failed,
-                    "processed": succeeded + failed,
-                    "succeeded": succeeded,
-                    "failed": failed
-                },
-                "results": results,
-            });
-
-            let status = if failed == 0 {
-                StatusCode::CREATED
-            } else {
-                StatusCode::MULTI_STATUS
-            };
-
-            Ok((status, response))
-        },
-    )
-    .await
-}
-
-async fn batch_approve_intents(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<Value>,
-) -> Response {
-    onchain_write_with_audit_and_idempotency(
-        state,
-        headers,
-        "batch_approve_intents",
-        "/intents/batch/approve".to_string(),
-        payload,
-        move |chain, body| {
-            let payload: BatchApproveCompatInput = serde_json::from_value(body)
-                .map_err(|e| anyhow!("invalid compatibility batch-approve payload: {e}"))?;
-
-            if payload.intent_ids.is_empty() {
-                return Err(anyhow!("intentIds must be a non-empty array"));
-            }
-
-            let mode = parse_compat_batch_mode(payload.mode.as_deref());
-            let digest = parse_approval_digest(payload.approval_digest)?;
-            let mut results = Vec::with_capacity(payload.intent_ids.len());
-
-            for intent_id in payload.intent_ids {
-                let result = chain.approve_intent(ApproveIntentInput {
-                    policy: payload.policy.clone(),
-                    intent_id,
-                    approval_digest: digest,
-                });
-
-                match result {
-                    Ok(value) => {
-                        results.push(BatchCompatResult {
-                            intent_id,
-                            status: "succeeded".to_string(),
-                            signature: value
-                                .get("signature")
-                                .and_then(Value::as_str)
-                                .map(ToString::to_string),
-                            payment_intent: value
-                                .get("paymentIntent")
-                                .and_then(Value::as_str)
-                                .map(ToString::to_string),
-                            error: None,
-                        });
-                    }
-                    Err(error) => {
-                        results.push(BatchCompatResult {
-                            intent_id,
-                            status: "failed".to_string(),
-                            signature: None,
-                            payment_intent: None,
-                            error: Some(error.to_string()),
-                        });
-
-                        if mode == "abort-on-error" {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            let succeeded = results.iter().filter(|r| r.status == "succeeded").count();
-            let failed = results.len().saturating_sub(succeeded);
-
-            let response = json!({
-                "policy": payload.policy,
-                "summary": {
-                    "mode": mode,
-                    "total": succeeded + failed,
-                    "processed": succeeded + failed,
-                    "succeeded": succeeded,
-                    "failed": failed
-                },
-                "results": results,
-            });
-
-            let status = if failed == 0 {
-                StatusCode::OK
-            } else {
-                StatusCode::MULTI_STATUS
-            };
-
-            Ok((status, response))
         },
     )
     .await

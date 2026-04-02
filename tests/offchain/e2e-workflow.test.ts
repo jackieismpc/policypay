@@ -1,15 +1,7 @@
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import test from "node:test";
-
-import { createApp } from "../../services/control-plane/src/app";
-import type { ControlPlaneConfig } from "../../services/control-plane/src/config";
-import { createIndexerApp } from "../../services/indexer/src/app";
-import { createRelayerApp } from "../../services/relayer/src/app";
 
 type RunningServer = {
   server: Server;
@@ -17,15 +9,275 @@ type RunningServer = {
   close: () => Promise<void>;
 };
 
-const startServer = async (app: Parameters<typeof createServer>[0]) =>
+type BatchRecord = {
+  policy: string;
+  batchId: number;
+  mode: string;
+  status: string;
+  items: Array<{
+    intentId: number;
+    recipient: string;
+    amount: number;
+    memo: string;
+    reference: string;
+  }>;
+};
+
+const waitForUrl = async (url: string, timeoutMs = 10000) => {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        return;
+      }
+    } catch (_error) {
+      // keep waiting
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+
+  throw new Error(`timeout waiting for ${url}`);
+};
+
+const readJsonBody = async (
+  req: IncomingMessage
+): Promise<Record<string, unknown>> => {
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+
+  if (chunks.length === 0) {
+    return {};
+  }
+
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<
+    string,
+    unknown
+  >;
+};
+
+const writeJson = (
+  res: import("node:http").ServerResponse,
+  status: number,
+  body: unknown
+) => {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(body));
+};
+
+const startMockRustApi = async (): Promise<RunningServer> =>
   await new Promise<RunningServer>((resolve, reject) => {
-    const server = createServer(app);
+    const batches = new Map<number, BatchRecord>();
+    const auditLogs: Array<Record<string, unknown>> = [];
+
+    const server = createServer(async (req, res) => {
+      const method = req.method ?? "GET";
+      const rawUrl = req.url ?? "/";
+      const url = new URL(rawUrl, "http://127.0.0.1");
+      const path = url.pathname;
+
+      try {
+        if (method === "GET" && path === "/api/v1/summary") {
+          writeJson(res, 200, {
+            ok: true,
+            stage: "rust-unified-api",
+            integration: {
+              controlPlane: false,
+              rustOnchainEntry: true,
+              relayer: true,
+              indexer: true,
+            },
+            counts: {
+              auditLogs: auditLogs.length,
+              executions: 0,
+              timeline: 0,
+            },
+            runtime: "tokio+axum",
+          });
+          return;
+        }
+
+        if (method === "GET" && path === "/api/v1/audit-logs") {
+          writeJson(res, 200, { items: auditLogs });
+          return;
+        }
+
+        if (method === "GET" && path === "/api/v1/executions") {
+          writeJson(res, 200, { items: [] });
+          return;
+        }
+
+        if (method === "GET" && path === "/api/v1/timeline") {
+          writeJson(res, 200, { items: [] });
+          return;
+        }
+
+        if (method === "POST" && path === "/api/v1/intents") {
+          const payload = await readJsonBody(req);
+          auditLogs.push({
+            action: "create_intent",
+            status: "succeeded",
+            payload,
+          });
+          writeJson(res, 201, {
+            signature: "sig-create-intent-mock",
+            paymentIntent: `intent-${String(payload.intentId ?? "unknown")}`,
+          });
+          return;
+        }
+
+        if (method === "POST" && path === "/api/v1/batches") {
+          const payload = await readJsonBody(req);
+          const batchId = Number(payload.batchId);
+          if (!Number.isSafeInteger(batchId) || batchId < 0) {
+            writeJson(res, 400, { error: "invalid batchId" });
+            return;
+          }
+
+          const record: BatchRecord = {
+            policy: String(payload.policy ?? ""),
+            batchId,
+            mode: String(payload.mode ?? "abort-on-error"),
+            status: "draft",
+            items: [],
+          };
+          batches.set(batchId, record);
+          auditLogs.push({
+            action: "create_batch_intent_onchain",
+            status: "succeeded",
+            batchId,
+          });
+          writeJson(res, 201, {
+            signature: `sig-create-batch-${batchId}`,
+            batchIntent: `batch-${batchId}`,
+          });
+          return;
+        }
+
+        const addItemMatch = path.match(/^\/api\/v1\/batches\/(\d+)\/items$/);
+        if (method === "POST" && addItemMatch) {
+          const batchId = Number(addItemMatch[1]);
+          const current = batches.get(batchId);
+          if (!current) {
+            writeJson(res, 404, { error: `batch ${batchId} not found` });
+            return;
+          }
+
+          const payload = await readJsonBody(req);
+          current.items.push({
+            intentId: Number(payload.intentId ?? 0),
+            recipient: String(payload.recipient ?? ""),
+            amount: Number(payload.amount ?? 0),
+            memo: String(payload.memo ?? ""),
+            reference: String(payload.reference ?? ""),
+          });
+          batches.set(batchId, current);
+          writeJson(res, 201, {
+            signature: `sig-add-item-${batchId}-${current.items.length}`,
+            batchIntent: `batch-${batchId}`,
+          });
+          return;
+        }
+
+        const submitMatch = path.match(/^\/api\/v1\/batches\/(\d+)\/submit$/);
+        if (method === "POST" && submitMatch) {
+          const batchId = Number(submitMatch[1]);
+          const current = batches.get(batchId);
+          if (!current) {
+            writeJson(res, 404, { error: `batch ${batchId} not found` });
+            return;
+          }
+          current.status = "pending_approval";
+          writeJson(res, 200, {
+            signature: `sig-submit-batch-${batchId}`,
+            batchIntent: `batch-${batchId}`,
+          });
+          return;
+        }
+
+        const approveMatch = path.match(/^\/api\/v1\/batches\/(\d+)\/approve$/);
+        if (method === "POST" && approveMatch) {
+          const batchId = Number(approveMatch[1]);
+          const current = batches.get(batchId);
+          if (!current) {
+            writeJson(res, 404, { error: `batch ${batchId} not found` });
+            return;
+          }
+          current.status = "approved";
+          writeJson(res, 200, {
+            signature: `sig-approve-batch-${batchId}`,
+            batchIntent: `batch-${batchId}`,
+          });
+          return;
+        }
+
+        const cancelMatch = path.match(/^\/api\/v1\/batches\/(\d+)\/cancel$/);
+        if (method === "POST" && cancelMatch) {
+          const batchId = Number(cancelMatch[1]);
+          const current = batches.get(batchId);
+          if (!current) {
+            writeJson(res, 404, { error: `batch ${batchId} not found` });
+            return;
+          }
+          current.status = "cancelled";
+          writeJson(res, 200, {
+            signature: `sig-cancel-batch-${batchId}`,
+            batchIntent: `batch-${batchId}`,
+          });
+          return;
+        }
+
+        const batchQueryMatch = path.match(
+          /^\/api\/v1\/policies\/([^/]+)\/batches\/(\d+)$/
+        );
+        if (method === "GET" && batchQueryMatch) {
+          const policy = decodeURIComponent(batchQueryMatch[1]);
+          const batchId = Number(batchQueryMatch[2]);
+          const current = batches.get(batchId);
+          if (!current || current.policy !== policy) {
+            writeJson(res, 404, {
+              error: `batch ${batchId} not found for policy ${policy}`,
+            });
+            return;
+          }
+          writeJson(res, 200, {
+            policy,
+            batchId,
+            mode: current.mode,
+            status: current.status,
+            totalItems: current.items.length,
+            items: current.items,
+          });
+          return;
+        }
+
+        if (method === "GET" && path === "/health") {
+          writeJson(res, 200, { ok: true });
+          return;
+        }
+
+        if (method === "GET" && path === "/openapi.json") {
+          writeJson(res, 200, { openapi: "3.0.3" });
+          return;
+        }
+
+        writeJson(res, 404, { error: "not found" });
+      } catch (error) {
+        writeJson(res, 500, { error: String(error) });
+      }
+    });
 
     server.on("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
       if (!address || typeof address === "string") {
-        reject(new Error("failed to resolve server address"));
+        reject(new Error("failed to start mock rust api"));
         return;
       }
 
@@ -39,326 +291,12 @@ const startServer = async (app: Parameters<typeof createServer>[0]) =>
                 closeReject(error);
                 return;
               }
-
               closeResolve();
             });
           }),
       });
     });
   });
-
-const allocatePort = async () =>
-  await new Promise<number>((resolve, reject) => {
-    const probe = createServer();
-
-    probe.on("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("failed to allocate port"));
-        return;
-      }
-
-      const { port } = address;
-      probe.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve(port);
-      });
-    });
-  });
-
-const waitForUrl = async (url: string, timeoutMs = 10000) => {
-  const started = Date.now();
-
-  while (Date.now() - started < timeoutMs) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-    } catch (_error) {
-      // keep polling until timeout
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
-
-  throw new Error(`timeout waiting for ${url}`);
-};
-
-const postJson = async (url: string, payload: unknown) => {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  return {
-    status: response.status,
-    body: (await response.json()) as Record<string, unknown>,
-  };
-};
-
-const createMockControlPlaneClient = () => {
-  const intents = new Map<number, Record<string, unknown>>();
-  const batches = new Map<number, Record<string, unknown>>();
-
-  return {
-    program: {
-      programId: {
-        toBase58: () => "policy-pay-mock-program",
-      },
-    },
-    async fetchPolicy(mint: string) {
-      return {
-        mint,
-        authority: "policy-authority",
-      };
-    },
-    async fetchIntent(policy: string, intentId: string | number) {
-      const numericIntentId = Number(intentId);
-      const item = intents.get(numericIntentId);
-
-      if (!item) {
-        throw new Error(
-          `intent ${numericIntentId} not found for policy ${policy}`
-        );
-      }
-
-      return item;
-    },
-    async fetchBatch(policy: string, batchId: string | number) {
-      const numericBatchId = Number(batchId);
-      const item = batches.get(numericBatchId);
-
-      if (!item) {
-        throw new Error(
-          `batch ${numericBatchId} not found for policy ${policy}`
-        );
-      }
-
-      return item;
-    },
-    async createIntent(input: {
-      policy: string;
-      intentId: number;
-      recipient: string;
-      amount: number;
-      memo: string;
-      reference: string;
-    }) {
-      const paymentIntent = `intent-${input.intentId}`;
-      const signature = `sig-create-${input.intentId}`;
-      intents.set(input.intentId, {
-        ...input,
-        paymentIntent,
-        status: "pending_approval",
-      });
-
-      return {
-        signature,
-        paymentIntent,
-      };
-    },
-    async createDraftIntent(input: {
-      policy: string;
-      intentId: number;
-      recipient: string;
-      amount: number;
-      memo: string;
-      reference: string;
-    }) {
-      const paymentIntent = `intent-${input.intentId}`;
-      intents.set(input.intentId, {
-        ...input,
-        paymentIntent,
-        status: "draft",
-      });
-
-      return {
-        signature: `sig-create-draft-${input.intentId}`,
-        paymentIntent,
-      };
-    },
-    async submitDraftIntent(input: { policy: string; intentId: number }) {
-      const current = intents.get(input.intentId);
-      if (!current) {
-        throw new Error(`intent ${input.intentId} not found`);
-      }
-
-      intents.set(input.intentId, {
-        ...current,
-        status: "pending_approval",
-      });
-
-      return {
-        signature: `sig-submit-draft-${input.intentId}`,
-        paymentIntent: `intent-${input.intentId}`,
-      };
-    },
-    async approveIntent(input: {
-      policy: string;
-      intentId: number;
-      approvalDigest: number[];
-    }) {
-      const current = intents.get(input.intentId);
-      if (!current) {
-        throw new Error(`intent ${input.intentId} not found`);
-      }
-
-      intents.set(input.intentId, {
-        ...current,
-        approvalDigest: input.approvalDigest,
-        status: "approved",
-      });
-
-      return {
-        signature: `sig-approve-${input.intentId}`,
-        paymentIntent: `intent-${input.intentId}`,
-      };
-    },
-    async cancelIntent(input: { policy: string; intentId: number }) {
-      const current = intents.get(input.intentId);
-      if (!current) {
-        throw new Error(`intent ${input.intentId} not found`);
-      }
-
-      intents.set(input.intentId, {
-        ...current,
-        status: "cancelled",
-      });
-
-      return {
-        signature: `sig-cancel-${input.intentId}`,
-        paymentIntent: `intent-${input.intentId}`,
-      };
-    },
-    async retryIntent(input: { policy: string; intentId: number }) {
-      const current = intents.get(input.intentId);
-      if (!current) {
-        throw new Error(`intent ${input.intentId} not found`);
-      }
-
-      intents.set(input.intentId, {
-        ...current,
-        status: "pending_approval",
-      });
-
-      return {
-        signature: `sig-retry-${input.intentId}`,
-        paymentIntent: `intent-${input.intentId}`,
-      };
-    },
-    async createBatchIntent(input: {
-      policy: string;
-      batchId: number;
-      mode?: "abort-on-error" | "continue-on-error";
-    }) {
-      batches.set(input.batchId, {
-        policy: input.policy,
-        batchId: input.batchId,
-        mode: input.mode ?? "abort-on-error",
-        status: "draft",
-        items: [],
-      });
-
-      return {
-        signature: `sig-create-batch-${input.batchId}`,
-        batchIntent: `batch-${input.batchId}`,
-      };
-    },
-    async addBatchItem(input: {
-      policy: string;
-      batchId: number;
-      intentId: number;
-      recipient: string;
-      amount: number;
-      memo: string;
-      reference: string;
-    }) {
-      const current = batches.get(input.batchId);
-      if (!current) {
-        throw new Error(`batch ${input.batchId} not found`);
-      }
-
-      const items = Array.isArray(current.items) ? [...current.items] : [];
-      items.push({
-        intentId: input.intentId,
-        recipient: input.recipient,
-        amount: input.amount,
-        memo: input.memo,
-        reference: input.reference,
-      });
-
-      batches.set(input.batchId, {
-        ...current,
-        items,
-      });
-
-      return {
-        signature: `sig-add-batch-item-${input.intentId}`,
-        batchIntent: `batch-${input.batchId}`,
-      };
-    },
-    async submitBatchForApproval(input: { policy: string; batchId: number }) {
-      const current = batches.get(input.batchId);
-      if (!current) {
-        throw new Error(`batch ${input.batchId} not found`);
-      }
-
-      batches.set(input.batchId, {
-        ...current,
-        status: "pending_approval",
-      });
-
-      return {
-        signature: `sig-submit-batch-${input.batchId}`,
-        batchIntent: `batch-${input.batchId}`,
-      };
-    },
-    async approveBatchIntent(input: {
-      policy: string;
-      batchId: number;
-      approvalDigest: number[];
-    }) {
-      const current = batches.get(input.batchId);
-      if (!current) {
-        throw new Error(`batch ${input.batchId} not found`);
-      }
-
-      batches.set(input.batchId, {
-        ...current,
-        status: "approved",
-        approvalDigest: input.approvalDigest,
-      });
-
-      return {
-        signature: `sig-approve-batch-${input.batchId}`,
-        batchIntent: `batch-${input.batchId}`,
-      };
-    },
-    async cancelBatchIntent(input: { policy: string; batchId: number }) {
-      const current = batches.get(input.batchId);
-      if (!current) {
-        throw new Error(`batch ${input.batchId} not found`);
-      }
-
-      batches.set(input.batchId, {
-        ...current,
-        status: "cancelled",
-      });
-
-      return {
-        signature: `sig-cancel-batch-${input.batchId}`,
-        batchIntent: `batch-${input.batchId}`,
-      };
-    },
-  };
-};
 
 const startDashboard = async (
   env: NodeJS.ProcessEnv
@@ -375,13 +313,8 @@ const startDashboard = async (
 
   const port = Number(env.DASHBOARD_PORT);
   const baseUrl = `http://127.0.0.1:${port}`;
-
-  await waitForUrl(`${baseUrl}/api/summary`);
-
-  return {
-    child,
-    baseUrl,
-  };
+  await waitForUrl(`${baseUrl}/api/v1/summary`);
+  return { child, baseUrl };
 };
 
 const killChild = async (child: ChildProcess) => {
@@ -393,202 +326,95 @@ const killChild = async (child: ChildProcess) => {
   await new Promise((resolve) => child.once("exit", resolve));
 };
 
-const withEnv = (overrides: Record<string, string>) => {
-  const previous = new Map<string, string | undefined>();
+const postJson = async (url: string, payload: unknown) => {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 
-  for (const [key, value] of Object.entries(overrides)) {
-    previous.set(key, process.env[key]);
-    process.env[key] = value;
-  }
-
-  return () => {
-    for (const [key, value] of previous.entries()) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
+  return {
+    status: response.status,
+    body: (await response.json()) as Record<string, unknown>,
   };
 };
 
-test("offchain services work together through dashboard and shared sqlite", async () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "policypay-e2e-"));
-  const sqlitePath = path.join(tempDir, "policypay.sqlite");
-  const auditLogPath = path.join(tempDir, "audit-log.json");
-
-  const restoreEnv = withEnv({
-    POLICYPAY_STORAGE_DRIVER: "sqlite",
-    POLICYPAY_SQLITE_PATH: sqlitePath,
-    RELAYER_STORAGE_DRIVER: "sqlite",
-    RELAYER_SQLITE_PATH: sqlitePath,
-    INDEXER_STORAGE_DRIVER: "sqlite",
-    INDEXER_SQLITE_PATH: sqlitePath,
+test("dashboard proxies rust unified api for batch workflow", async () => {
+  const rustApi = await startMockRustApi();
+  const dashboardPort = 24140;
+  const dashboard = await startDashboard({
+    ...process.env,
+    DASHBOARD_PORT: String(dashboardPort),
+    POLICYPAY_API_RS_BASE_URL: rustApi.baseUrl,
   });
 
-  let controlPlane: RunningServer | undefined;
-  let relayer: RunningServer | undefined;
-  let indexer: RunningServer | undefined;
-  let dashboard: { child: ChildProcess; baseUrl: string } | undefined;
-
   try {
-    const controlPlaneConfig: ControlPlaneConfig = {
-      rpcUrl: "http://127.0.0.1:8899",
-      walletPath: path.join(process.cwd(), "wallets/localnet.json"),
-      idlPath: path.join(process.cwd(), "target/idl/policy_pay.json"),
-      auditLogPath,
-      sqlitePath,
-      storageDriver: "sqlite",
-      port: 0,
-    };
-
-    const controlPlaneApp = createApp(controlPlaneConfig, {
-      client: createMockControlPlaneClient(),
+    const createBatch = await postJson(`${dashboard.baseUrl}/api/v1/batches`, {
+      policy: "policy-001",
+      batchId: 5001,
+      mode: "continue-on-error",
     });
+    assert.equal(createBatch.status, 201);
 
-    const relayerApp = createRelayerApp();
-    const indexerApp = createIndexerApp();
-
-    controlPlane = await startServer(controlPlaneApp);
-    relayer = await startServer(relayerApp);
-    indexer = await startServer(indexerApp);
-
-    const dashboardPort = await allocatePort();
-    dashboard = await startDashboard({
-      ...process.env,
-      DASHBOARD_PORT: String(dashboardPort),
-      CONTROL_PLANE_BASE_URL: controlPlane.baseUrl,
-      RELAYER_BASE_URL: relayer.baseUrl,
-      INDEXER_BASE_URL: indexer.baseUrl,
-    });
-
-    const batchCreate = await postJson(
-      `${dashboard.baseUrl}/api/intents/batch`,
+    const addItem1 = await postJson(
+      `${dashboard.baseUrl}/api/v1/batches/5001/items`,
       {
         policy: "policy-001",
-        mode: "continue-on-error",
-        items: [
-          {
-            intentId: 9101,
-            recipient: "recipient-a",
-            amount: 120,
-            memo: "invoice-9101",
-            reference: "ref-9101",
-          },
-          {
-            intentId: 9102,
-            recipient: "recipient-b",
-            amount: 220,
-            memo: "invoice-9102",
-            reference: "ref-9102",
-          },
-        ],
-      }
-    );
-    assert.equal(batchCreate.status, 201);
-    assert.equal(
-      (batchCreate.body.summary as { succeeded: number }).succeeded,
-      2
-    );
-
-    const batchApprove = await postJson(
-      `${dashboard.baseUrl}/api/intents/batch/approve`,
-      {
-        policy: "policy-001",
-        mode: "abort-on-error",
-        intentIds: [9101, 9102],
-      }
-    );
-    assert.equal(batchApprove.status, 200);
-    assert.equal(
-      (batchApprove.body.summary as { succeeded: number }).succeeded,
-      2
-    );
-
-    const batchExecution = await postJson(
-      `${relayer.baseUrl}/executions/batch`,
-      {
-        mode: "continue-on-error",
-        items: [
-          {
-            policy: "policy-001",
-            intentId: 9101,
-            paymentIntent: "intent-9101",
-          },
-          {
-            policy: "policy-001",
-            intentId: 9102,
-            paymentIntent: "intent-9102",
-            shouldFail: true,
-            failureReason: "simulated e2e failure",
-          },
-        ],
-      }
-    );
-    assert.equal(batchExecution.status, 207);
-
-    const confirmExecution = await postJson(
-      `${relayer.baseUrl}/executions/9101/confirm`,
-      {}
-    );
-    assert.equal(confirmExecution.status, 200);
-
-    const chainTimeline = await postJson(`${indexer.baseUrl}/timeline/chain`, {
-      intentId: 9101,
-      status: "approved",
-      details: { policy: "policy-001" },
-    });
-    assert.equal(chainTimeline.status, 201);
-
-    const relayerTimeline = await postJson(
-      `${indexer.baseUrl}/timeline/relayer`,
-      {
         intentId: 9101,
-        status: "confirmed",
-        details: { signature: "sig-9101" },
+        recipient: "recipient-a",
+        amount: 120,
+        memo: "invoice-9101",
+        reference: "ref-9101",
       }
     );
-    assert.equal(relayerTimeline.status, 201);
+    assert.equal(addItem1.status, 201);
 
-    const summaryResponse = await fetch(`${dashboard.baseUrl}/api/summary`);
-    const summary = (await summaryResponse.json()) as {
-      integration: {
-        controlPlane: boolean;
-        relayer: boolean;
-        indexer: boolean;
-      };
-      counts: {
-        auditLogs: number;
-        executions: number;
-        timeline: number;
-      };
+    const addItem2 = await postJson(
+      `${dashboard.baseUrl}/api/v1/batches/5001/items`,
+      {
+        policy: "policy-001",
+        intentId: 9102,
+        recipient: "recipient-b",
+        amount: 220,
+        memo: "invoice-9102",
+        reference: "ref-9102",
+      }
+    );
+    assert.equal(addItem2.status, 201);
+
+    const submit = await postJson(
+      `${dashboard.baseUrl}/api/v1/batches/5001/submit`,
+      { policy: "policy-001" }
+    );
+    assert.equal(submit.status, 200);
+
+    const approve = await postJson(
+      `${dashboard.baseUrl}/api/v1/batches/5001/approve`,
+      { policy: "policy-001" }
+    );
+    assert.equal(approve.status, 200);
+
+    const queryResponse = await fetch(
+      `${dashboard.baseUrl}/api/v1/policies/policy-001/batches/5001`
+    );
+    const queried = (await queryResponse.json()) as {
+      status: string;
+      totalItems: number;
     };
+    assert.equal(queryResponse.status, 200);
+    assert.equal(queried.status, "approved");
+    assert.equal(queried.totalItems, 2);
 
+    const summaryResponse = await fetch(`${dashboard.baseUrl}/api/v1/summary`);
+    const summary = (await summaryResponse.json()) as {
+      ok: boolean;
+      stage: string;
+    };
     assert.equal(summaryResponse.status, 200);
-    assert.equal(summary.integration.controlPlane, true);
-    assert.equal(summary.integration.relayer, true);
-    assert.equal(summary.integration.indexer, true);
-    assert.ok(summary.counts.auditLogs >= 2);
-    assert.equal(summary.counts.executions, 2);
-    assert.equal(summary.counts.timeline, 2);
+    assert.equal(summary.ok, true);
+    assert.equal(summary.stage, "rust-unified-api");
   } finally {
-    if (dashboard) {
-      await killChild(dashboard.child);
-    }
-
-    if (indexer) {
-      await indexer.close();
-    }
-
-    if (relayer) {
-      await relayer.close();
-    }
-
-    if (controlPlane) {
-      await controlPlane.close();
-    }
-
-    restoreEnv();
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    await killChild(dashboard.child);
+    await rustApi.close();
   }
 });

@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -28,8 +28,11 @@
         margin: 0;
         font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
         color: var(--text);
-        background:
-          radial-gradient(circle at 15% 15%, #fefce8 0%, transparent 35%),
+        background: radial-gradient(
+            circle at 15% 15%,
+            #fefce8 0%,
+            transparent 35%
+          ),
           radial-gradient(circle at 85% 10%, #dbeafe 0%, transparent 34%),
           linear-gradient(135deg, var(--bg), var(--bg-soft));
       }
@@ -198,7 +201,8 @@
       <section class="hero">
         <h1>PolicyPay 支付工作台</h1>
         <p class="subtitle">
-          面向业务人员的付款申请与审批控制台，支持单笔、批量、链上 Batch 全流程。
+          面向业务人员的付款申请与审批控制台，支持单笔、批量、链上 Batch
+          全流程。
         </p>
         <div class="meta">
           <span class="pill">付款单创建</span>
@@ -222,21 +226,41 @@
           <form id="single-form">
             <label
               >支付规则编号（Policy 地址）
-              <input id="single-policy" required placeholder="示例：policy-pda" />
+              <input
+                id="single-policy"
+                required
+                placeholder="示例：policy-pda"
+              />
             </label>
             <div class="row">
               <label
                 >付款单号（Intent ID）
-                <input id="single-intent-id" required type="number" min="0" placeholder="101" />
+                <input
+                  id="single-intent-id"
+                  required
+                  type="number"
+                  min="0"
+                  placeholder="101"
+                />
               </label>
               <label
                 >付款金额（最小单位）
-                <input id="single-amount" required type="number" min="1" placeholder="100" />
+                <input
+                  id="single-amount"
+                  required
+                  type="number"
+                  min="1"
+                  placeholder="100"
+                />
               </label>
             </div>
             <label
               >收款地址（钱包公钥）
-              <input id="single-recipient" required placeholder="recipient pubkey" />
+              <input
+                id="single-recipient"
+                required
+                placeholder="recipient pubkey"
+              />
             </label>
             <label
               >付款备注（Memo）
@@ -252,25 +276,45 @@
         </article>
 
         <article class="card">
-          <h2>批量创建付款单（兼容模式）</h2>
+          <h2>批次创建（链上 BatchIntent）</h2>
           <form id="batch-form">
             <label
               >支付规则编号（Policy 地址）
-              <input id="batch-policy" required placeholder="示例：policy-pda" />
+              <input
+                id="batch-policy"
+                required
+                placeholder="示例：policy-pda"
+              />
+            </label>
+            <label
+              >批次编号（Batch ID）
+              <input
+                id="batch-id"
+                required
+                type="number"
+                min="0"
+                placeholder="5001"
+              />
             </label>
             <label
               >批量模式
               <select id="batch-mode">
-                <option value="abort-on-error">遇错即停（abort-on-error）</option>
-                <option value="continue-on-error">继续处理（continue-on-error）</option>
+                <option value="abort-on-error">
+                  遇错即停（abort-on-error）
+                </option>
+                <option value="continue-on-error">
+                  继续处理（continue-on-error）
+                </option>
               </select>
             </label>
             <label
-              >批量明细（每行一条，格式：付款单号,收款地址,金额,备注,业务流水号）
-              <textarea id="batch-items" required>201,recipient-a,100,invoice-201,ref-201
-202,recipient-b,250,invoice-202,ref-202</textarea>
+              >批次明细（每行一条，格式：付款单号,收款地址,金额,备注,业务流水号）
+              <textarea id="batch-items" required>
+201,recipient-a,100,invoice-201,ref-201
+202,recipient-b,250,invoice-202,ref-202</textarea
+              >
             </label>
-            <button type="submit">批量创建付款单</button>
+            <button type="submit">创建批次并添加明细</button>
           </form>
           <div id="batch-status" class="status">等待提交</div>
         </article>
@@ -278,24 +322,35 @@
 
       <section class="grid two">
         <article class="card">
-          <h2>批量审批（兼容模式）</h2>
+          <h2>批次操作（提交/审批/取消）</h2>
           <form id="approve-form">
             <label
               >支付规则编号（Policy 地址）
-              <input id="approve-policy" required placeholder="示例：policy-pda" />
+              <input
+                id="approve-policy"
+                required
+                placeholder="示例：policy-pda"
+              />
             </label>
             <label
-              >付款单号列表（逗号分隔）
-              <input id="approve-ids" required placeholder="201,202,203" />
+              >批次编号（Batch ID）
+              <input
+                id="approve-batch-id"
+                required
+                type="number"
+                min="0"
+                placeholder="5001"
+              />
             </label>
             <label
-              >审批模式
-              <select id="approve-mode">
-                <option value="abort-on-error">遇错即停（abort-on-error）</option>
-                <option value="continue-on-error">继续处理（continue-on-error）</option>
+              >操作类型
+              <select id="approve-action">
+                <option value="submit">提交审批</option>
+                <option value="approve">审批批次</option>
+                <option value="cancel">取消批次</option>
               </select>
             </label>
-            <button type="submit">批量审批</button>
+            <button type="submit">执行批次操作</button>
           </form>
           <div id="approve-status" class="status">等待提交</div>
         </article>
@@ -303,8 +358,12 @@
         <article class="card">
           <h2>面板刷新</h2>
           <div class="row">
-            <button class="ghost" id="refresh-all" type="button">刷新全部面板</button>
-            <button class="ghost" id="refresh-summary" type="button">刷新摘要</button>
+            <button class="ghost" id="refresh-all" type="button">
+              刷新全部面板
+            </button>
+            <button class="ghost" id="refresh-summary" type="button">
+              刷新摘要
+            </button>
           </div>
           <div class="pane" style="margin-top: 10px">
             <pre id="summary-pane">{}</pre>
@@ -317,18 +376,32 @@
           <h2>链上 BatchIntent 全流程（批处理）</h2>
           <label
             >支付规则编号（Policy 地址）
-            <input id="onchain-policy" placeholder="示例：policy-pda" required />
+            <input
+              id="onchain-policy"
+              placeholder="示例：policy-pda"
+              required
+            />
           </label>
           <div class="row">
             <label
               >批次编号（Batch ID）
-              <input id="onchain-batch-id" type="number" min="0" placeholder="5001" required />
+              <input
+                id="onchain-batch-id"
+                type="number"
+                min="0"
+                placeholder="5001"
+                required
+              />
             </label>
             <label
               >批次模式
               <select id="onchain-mode">
-                <option value="abort-on-error">遇错即停（abort-on-error）</option>
-                <option value="continue-on-error">继续处理（continue-on-error）</option>
+                <option value="abort-on-error">
+                  遇错即停（abort-on-error）
+                </option>
+                <option value="continue-on-error">
+                  继续处理（continue-on-error）
+                </option>
               </select>
             </label>
           </div>
@@ -340,11 +413,21 @@
           <div class="row">
             <label
               >付款单号（Intent ID）
-              <input id="onchain-intent-id" type="number" min="0" placeholder="50011" />
+              <input
+                id="onchain-intent-id"
+                type="number"
+                min="0"
+                placeholder="50011"
+              />
             </label>
             <label
               >付款金额
-              <input id="onchain-amount" type="number" min="1" placeholder="100" />
+              <input
+                id="onchain-amount"
+                type="number"
+                min="1"
+                placeholder="100"
+              />
             </label>
           </div>
           <label
@@ -366,7 +449,9 @@
             <button type="button" id="onchain-submit-batch">提交审批</button>
             <button type="button" id="onchain-approve-batch">审批批次</button>
             <button type="button" id="onchain-cancel-batch">取消批次</button>
-            <button type="button" class="ghost" id="onchain-fetch-batch">查询批次</button>
+            <button type="button" class="ghost" id="onchain-fetch-batch">
+              查询批次
+            </button>
           </div>
 
           <div id="onchain-status" class="status">等待操作</div>
@@ -450,7 +535,9 @@
           const parts = line.split(",").map((part) => part.trim());
           if (parts.length < 5) {
             throw new Error(
-              `第 ${index + 1} 行格式错误，应为：付款单号,收款地址,金额,备注,业务流水号`
+              `第 ${
+                index + 1
+              } 行格式错误，应为：付款单号,收款地址,金额,备注,业务流水号`
             );
           }
 
@@ -482,10 +569,10 @@
 
       const refreshPanels = async () => {
         const [summary, auditLogs, executions, timeline] = await Promise.all([
-          requestJson("/api/summary"),
-          requestJson("/api/audit-logs"),
-          requestJson("/api/executions"),
-          requestJson("/api/timeline"),
+          requestJson("/api/v1/summary"),
+          requestJson("/api/v1/audit-logs"),
+          requestJson("/api/v1/executions"),
+          requestJson("/api/v1/timeline"),
         ]);
 
         byId("summary-pane").textContent = asPrettyJson(summary);
@@ -509,7 +596,7 @@
         };
 
         try {
-          const response = await requestJson("/api/intents", {
+          const response = await requestJson("/api/v1/intents", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -530,24 +617,79 @@
         event.preventDefault();
 
         try {
-          const items = parseBatchItems(byId("batch-items").value);
-          const payload = {
-            policy: byId("batch-policy").value,
-            mode: byId("batch-mode").value,
-            items,
-          };
+          const policy = byId("batch-policy").value;
+          const batchId = Number(byId("batch-id").value);
+          const mode = byId("batch-mode").value;
 
-          const response = await requestJson("/api/intents/batch", {
+          if (!Number.isSafeInteger(batchId) || batchId < 0) {
+            throw new Error("批次编号必须是非负整数");
+          }
+
+          const items = parseBatchItems(byId("batch-items").value);
+          await requestJson("/api/v1/batches", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
+            body: JSON.stringify({ policy, batchId, mode }),
           });
+
+          const results = [];
+          for (const item of items) {
+            try {
+              const response = await requestJson(
+                `/api/v1/batches/${batchId}/items`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    policy,
+                    intentId: item.intentId,
+                    recipient: item.recipient,
+                    amount: item.amount,
+                    memo: item.memo,
+                    reference: item.reference,
+                  }),
+                }
+              );
+              results.push({
+                intentId: item.intentId,
+                status: "succeeded",
+                response,
+              });
+            } catch (error) {
+              results.push({
+                intentId: item.intentId,
+                status: "failed",
+                error: String(error),
+              });
+              if (mode === "abort-on-error") {
+                break;
+              }
+            }
+          }
+
+          const succeeded = results.filter(
+            (item) => item.status === "succeeded"
+          ).length;
+          const failed = results.length - succeeded;
 
           setStatus(
             "batch-status",
-            "批量创建完成: " + asPrettyJson(response.summary || response),
+            "批次创建完成: " +
+              asPrettyJson({
+                mode,
+                batchId,
+                processed: results.length,
+                succeeded,
+                failed,
+                results,
+              }),
             "ok"
           );
+
+          byId("onchain-policy").value = policy;
+          byId("onchain-batch-id").value = String(batchId);
+          byId("approve-policy").value = policy;
+          byId("approve-batch-id").value = String(batchId);
           await refreshPanels();
         } catch (error) {
           setStatus("batch-status", String(error), "err");
@@ -558,28 +700,30 @@
         event.preventDefault();
 
         try {
-          const intentIds = byId("approve-ids")
-            .value.split(",")
-            .map((item) => Number(item.trim()))
-            .filter((item) => Number.isSafeInteger(item) && item >= 0);
+          const policy = byId("approve-policy").value;
+          const batchId = Number(byId("approve-batch-id").value);
+          const action = byId("approve-action").value;
 
-          const payload = {
-            policy: byId("approve-policy").value,
-            mode: byId("approve-mode").value,
-            intentIds,
-          };
+          if (!Number.isSafeInteger(batchId) || batchId < 0) {
+            throw new Error("批次编号必须是非负整数");
+          }
 
-          const response = await requestJson("/api/intents/batch/approve", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+          const response = await requestJson(
+            `/api/v1/batches/${batchId}/${action}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ policy }),
+            }
+          );
 
           setStatus(
             "approve-status",
-            "批量审批完成: " + asPrettyJson(response.summary || response),
+            "批次操作完成: " + asPrettyJson(response),
             "ok"
           );
+          byId("onchain-policy").value = policy;
+          byId("onchain-batch-id").value = String(batchId);
           await refreshPanels();
         } catch (error) {
           setStatus("approve-status", String(error), "err");
@@ -594,7 +738,7 @@
       byId("onchain-create-batch").addEventListener("click", async () => {
         try {
           const { policy, batchId } = getOnchainBase();
-          const response = await requestJson("/api/batches", {
+          const response = await requestJson("/api/v1/batches", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -618,18 +762,21 @@
       byId("onchain-add-item").addEventListener("click", async () => {
         try {
           const { policy, batchId } = getOnchainBase();
-          const response = await requestJson(`/api/batches/${batchId}/items`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              policy,
-              intentId: Number(byId("onchain-intent-id").value),
-              recipient: byId("onchain-recipient").value,
-              amount: Number(byId("onchain-amount").value),
-              memo: byId("onchain-memo").value,
-              reference: byId("onchain-reference").value,
-            }),
-          });
+          const response = await requestJson(
+            `/api/v1/batches/${batchId}/items`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                policy,
+                intentId: Number(byId("onchain-intent-id").value),
+                recipient: byId("onchain-recipient").value,
+                amount: Number(byId("onchain-amount").value),
+                memo: byId("onchain-memo").value,
+                reference: byId("onchain-reference").value,
+              }),
+            }
+          );
 
           setStatus(
             "onchain-status",
@@ -645,11 +792,14 @@
       byId("onchain-submit-batch").addEventListener("click", async () => {
         try {
           const { policy, batchId } = getOnchainBase();
-          const response = await requestJson(`/api/batches/${batchId}/submit`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ policy }),
-          });
+          const response = await requestJson(
+            `/api/v1/batches/${batchId}/submit`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ policy }),
+            }
+          );
 
           setStatus(
             "onchain-status",
@@ -665,11 +815,14 @@
       byId("onchain-approve-batch").addEventListener("click", async () => {
         try {
           const { policy, batchId } = getOnchainBase();
-          const response = await requestJson(`/api/batches/${batchId}/approve`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ policy }),
-          });
+          const response = await requestJson(
+            `/api/v1/batches/${batchId}/approve`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ policy }),
+            }
+          );
 
           setStatus(
             "onchain-status",
@@ -685,11 +838,14 @@
       byId("onchain-cancel-batch").addEventListener("click", async () => {
         try {
           const { policy, batchId } = getOnchainBase();
-          const response = await requestJson(`/api/batches/${batchId}/cancel`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ policy }),
-          });
+          const response = await requestJson(
+            `/api/v1/batches/${batchId}/cancel`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ policy }),
+            }
+          );
 
           setStatus(
             "onchain-status",
@@ -706,7 +862,7 @@
         try {
           const { policy, batchId } = getOnchainBase();
           const response = await requestJson(
-            `/api/policies/${encodeURIComponent(policy)}/batches/${batchId}`
+            `/api/v1/policies/${encodeURIComponent(policy)}/batches/${batchId}`
           );
 
           byId("onchain-batch-pane").textContent = asPrettyJson(response);
@@ -726,7 +882,7 @@
 
       byId("refresh-summary").addEventListener("click", async () => {
         try {
-          const summary = await requestJson("/api/summary");
+          const summary = await requestJson("/api/v1/summary");
           byId("summary-pane").textContent = asPrettyJson(summary);
         } catch (error) {
           setStatus("approve-status", String(error), "err");
