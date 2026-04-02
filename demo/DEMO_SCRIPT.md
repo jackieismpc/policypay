@@ -2,18 +2,29 @@
 
 ## 目标
 
-用最短路径演示 PolicyPay 当前阶段（3.5）已经打通的闭环：
+用最短路径演示 PolicyPay 当前可交付基线已经打通：
 
 - 单笔 + 批量 intent 编排
 - 批量审批
 - Relayer 批量执行
 - Indexer 时间线查询
 - Dashboard 交互式工作台
+- SQLite 默认存储（可切 JSON）
+
+## 演示前准备
+
+1. 启动服务：
+   - `yarn run dev:control-plane`
+   - `yarn run dev:relayer`
+   - `yarn run dev:indexer`
+   - `yarn run dev:dashboard`
+2. 打开 Dashboard：`http://127.0.0.1:24040/`
+3. 可选：先运行 `demo/live_demo.sh` 预热数据
 
 ## 演示顺序
 
 1. 展示 Dashboard Workbench
-   - 访问 `http://127.0.0.1:4030/`
+   - 访问 `http://127.0.0.1:24040/`
    - 展示三个操作区：单笔创建、批量创建、批量审批
    - 点击“刷新全部面板”展示 summary / audit / executions / timeline
 
@@ -56,7 +67,8 @@
    - 链上主流程稳定
    - 控制面/执行层/索引层可联动
    - Dashboard 可直接操作并观测状态
-   - 下一步聚焦：链上 batch 账户模型 + 正式存储层 + 最终视频交付
+   - 默认端口统一到 `20000+`
+   - 存储层默认 SQLite，支持模块化切换
 
 ## 视频录制建议
 
@@ -70,7 +82,7 @@
 
 ## 建议镜头脚本
 
-1. 先展示 `README.md` 的产品定位和架构图索引。
+1. 先展示 `README.md` 的产品定位和快速开始。
 2. 切到 Dashboard，完成一次单笔创建 + 一次批量创建。
 3. 切到 API 终端，演示批量审批、批量执行和时间线查询。
 4. 回到 Dashboard，刷新并展示状态变化。
