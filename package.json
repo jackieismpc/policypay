@@ -9,7 +9,9 @@
     "test:control-plane": "tsx --test services/control-plane/tests/**/*.test.ts",
     "dev:relayer": "tsx services/relayer/src/server.ts",
     "test:relayer": "tsx --test services/relayer/tests/**/*.test.ts",
-    "test:indexer": "tsx --test services/indexer/tests/**/*.test.ts"
+    "test:indexer": "tsx --test services/indexer/tests/**/*.test.ts",
+    "dev:dashboard": "tsx app/src/server.ts",
+    "test:dashboard": "tsx --test app/src/**/*.test.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

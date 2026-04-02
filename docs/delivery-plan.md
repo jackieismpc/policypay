@@ -124,6 +124,11 @@
 - 展示执行状态
 - 提供失败重试入口
 
+当前阶段补充说明：
+
+- 先落一个最小 Dashboard 服务，提供页面入口和摘要接口。
+- 下一轮再把 Control Plane / Relayer / Indexer 的数据真正渲染成表单与时间线。
+
 ### 阶段 5：Agent Adapter Draft MVP
 
 目标：支持自然语言 / CSV -> draft intent，但必须人工确认后才能落链执行。

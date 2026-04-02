@@ -55,7 +55,7 @@ programs/
 migrations/           # Anchor deploy 脚本（当前仍是占位）
 tests/                # Anchor TS 测试
 docs/                 # 项目文档
-app/                  # 预留前端目录（当前为空）
+app/                  # Dashboard MVP 目录
 services/
   control-plane/      # 当前阶段新增的最小控制面
   relayer/            # 当前阶段新增的最小执行服务
