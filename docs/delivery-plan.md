@@ -1,318 +1,97 @@
-# PolicyPay 需求与实施计划
+# PolicyPay 交付计划（当前执行版）
 
-## 1. 当前阶段判断
+## 1. 目标
 
-当前仓库已经有链上最小原型，并且已经具备最小离链闭环，但整体产品仍未形成最终可交付版本。
+在保持 `Rust + Anchor` 主线不变的前提下，把项目收口为可真实部署的企业支付流程产品：
 
-### 当前已实现
+- 技术用户可直接调用 API
+- 非技术用户可直接使用 Dashboard
+- 链上与离链状态一致、可追踪、可审计
 
-- Anchor program：`programs/policy_pay/`
-- 已实现指令：
-  - `create_policy`
-  - `create_intent`
-  - `create_draft_intent`
-  - `submit_draft_intent`
-  - `create_batch_intent`
-  - `add_batch_item`
-  - `submit_batch_for_approval`
-  - `approve_batch_intent`
-  - `cancel_batch_intent`
-  - `approve_intent`
-  - `execute_intent`
-  - `settle_intent`
-  - `retry_intent`
-  - `cancel_intent`
-- 当前可达状态流：
-  - 单笔：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
-  - 批量：`Draft -> PendingApproval -> Approved | Cancelled`
-- 已有 Anchor 测试覆盖：
-  - 主流程生命周期
-  - 失败后重试
-  - 白名单
-  - memo 约束
-  - 权限边界
-  - 非法状态迁移
-  - 长度边界
-  - retry 上限
-- 已有最小：
-  - Control Plane MVP
-  - Relayer MVP
-  - Indexer MVP
-  - Dashboard Workbench（交互式）
-  - Agent Adapter MVP
+## 2. 当前完成度快照
 
-### 当前未完成
+已完成：
 
-- 仍需继续扩展并发压力与失败恢复场景的端到端回归覆盖
-- 最终 demo 视频仍需录制
+- 链上状态机（Intent / Draft / BatchIntent）
+- Rust Unified API（`tokio + axum`）主入口
+- SQLite 默认模块化存储
+- 中文 Dashboard 基础交互
+- Anchor 与 Rust 测试基线
+- `anchor test` 启动竞态问题分析与稳定执行脚本
 
-## 2. 实施原则
+仍需完成：
 
-- 先更新文档，再开始对应阶段编码
-- 先收口链上正确性，再推进离链闭环
-- 先做单笔 intent 主闭环，再扩展 batch intent 和 agent draft
-- 主链路所需能力优先，非核心能力后置
-- 所有阶段都要同步测试与文档
-- 对外交付优先单端口模式，内部保持模块化可独立部署
-- 新增路由/异步能力优先 `tokio + axum`，现有 Express 模块按风险逐步演进
+- 领域模块 `modules/domain`（统一 DTO/状态/错误/事件）
+- PostgreSQL 适配层（保持 SQLite 默认）
+- 压测与故障恢复回归体系
+- 最终演示视频与交付封板
 
-## 3. 分阶段实施顺序
+## 3. 阶段拆分
 
-### 阶段 0：文档对齐与规则落地
+### 阶段 A：收口清理（进行中）
 
-目标：让文档、目录、真实能力和开发流程一致。
+目标：清理兼容路径，把默认链路统一到 Rust API。
 
-### 阶段 1：链上 Program 收口与测试补强
+验收标准：
 
-目标：把 `programs/policy_pay` 打磨成稳定底座。
+- 对外接口统一为 `/api/v1/*`
+- 旧兼容批量接口清理完成
+- 旧文档中的兼容叙事被合并/移除
 
-### 阶段 2：Control Plane MVP
+### 阶段 B：领域统一（下一阶段）
 
-目标：建立最小离链业务层，统一查询、编排与审计。
+目标：新增 `modules/domain`，统一跨模块语义。
 
-当前阶段补充说明：
+验收标准：
 
-- 审计日志存储已模块化，默认 SQLite，可按环境切换 JSON。
-- 当前只覆盖单笔 intent 闭环，不在此阶段扩展 batch intent。
-- 当前不接入自动执行，Relayer 和 Indexer 在下一阶段接入。
+- 统一状态枚举、错误码、事件名、关键 DTO
+- Rust API 与 Dashboard 不再各自维护一套语义
 
-### 阶段 3：Relayer + Indexer MVP
+### 阶段 C：生产化增强
 
-目标：打通自动执行、失败重试、状态回写闭环。
+目标：面向企业环境的性能、稳定性、可运维能力。
 
-当前阶段补充说明：
+验收标准：
 
-- 当前先完成最小可演示后端闭环：执行记录、确认回写、失败原因、时间线索引。
-- 执行与时间线存储已模块化，默认 SQLite，可按服务切换 JSON。
+- 并发与故障恢复压测基线形成
+- 幂等冲突与恢复场景回归通过
+- PostgreSQL 适配层可用（不影响 SQLite 默认开发）
 
-### 阶段 3.5：Batch 编排与 Dashboard 工作台（已完成）
+### 阶段 D：交付封板
 
-目标：在不改变现有链上账户模型的前提下，先完成可用的批量操作闭环和可交互前端。
+目标：形成可直接演示与对外交付的完整包。
 
-当前阶段补充说明：
+验收标准：
 
-- batch intent 先由 Control Plane 编排为多次 `create_intent` 调用，确保可审计和可追踪。
-- Relayer / Indexer 先提供可查询 API，供 Dashboard 直接消费。
-- Dashboard 从静态入口升级为可操作页面，覆盖单笔创建、批量创建、状态追踪。
-- 当前阶段完成后已落地模块化存储，默认 SQLite，支持切换 JSON。
+- README（产品介绍 + Quick Start）完成
+- docs（详细使用说明 + 示例）完成
+- demo 脚本可复现
+- 演示视频完成
 
-### 阶段 3.6：链上 Draft + BatchIntent 状态机（已完成）
+## 4. 质量门禁（每阶段）
 
-目标：在链上补齐 `Draft` 和 `BatchIntent` 的可达流程，并补齐对应测试。
+```bash
+cargo fmt --all
+cargo clippy -p policypay-api-rs --all-targets -- -D warnings
+cargo test
+anchor build
+yarn run test:anchor:safe
+```
 
-当前阶段补充说明：
+说明：`anchor test` 在当前环境存在 validator 启动探测竞态，统一使用 `yarn run test:anchor:safe`。
 
-- 新增链上单笔 draft 指令：`create_draft_intent`、`submit_draft_intent`。
-- 新增链上批量账户与指令：`create_batch_intent`、`add_batch_item`、`submit_batch_for_approval`、`approve_batch_intent`、`cancel_batch_intent`。
-- Anchor 测试新增 draft 与 batch 生命周期、权限和状态迁移覆盖。
-- 保留现有 Control Plane 批量编排接口，作为链上 batch 接口接入前的兼容路径。
+## 5. 提交与审查规则
 
-### 阶段 3.7：Control Plane 对接链上 Draft / BatchIntent（已完成）
+- 小改动、分阶段提交
+- 每个大阶段 push 前先进行代码审查，修复问题后再次审查
+- 凭据、钱包、临时环境文件只保留本地，不推送远端
 
-目标：让离链编排接口可以直接驱动链上 `Draft` 与 `BatchIntent` 指令路径。
+## 6. 里程碑定义（产品最终形态）
 
-阶段结果：
+达到以下条件视为产品完成：
 
-- 已新增 Control Plane draft 编排接口（创建 draft、提交 draft）。
-- 已新增 Control Plane 链上 batch 编排接口（创建 batch、加项、提交审批、审批、取消）。
-- 已保留旧的 `/intents/batch` 兼容模式（循环单笔），支持平滑迁移调用方。
-- 已补齐新增接口的自动化测试、示例与使用文档。
-
-### 阶段 3.8：Rust 统一 API（tokio + axum）接管（已完成）
-
-目标：在不破坏现有链上与离链接口的前提下，把默认后端入口迁移为 Rust 单进程多线程服务。
-
-本阶段按 1-4 顺序推进：
-
-1. 增加 `services/policypay-api-rs`，提供统一路由入口（端口使用 `20000+`）。
-2. 数据库按模块化设计接管审计、幂等、执行、时间线，默认 SQLite。
-3. 保留并封装 legacy Control Plane 兼容代理，确保平滑迁移。
-4. Dashboard 通过统一 `/api/*` 路径接入 Rust 入口，并保持单端口对外交付。
-
-阶段结果：
-
-- 已新增 `services/policypay-api-rs`，默认端口 `24100`，支持单进程多线程运行。
-- 已补齐 Rust 侧单元测试，覆盖幂等键、请求哈希、执行输入校验、SQLite 表初始化。
-- 已提供 Dashboard 页面（`GET /`）与统一 `/api/*` 接口入口。
-- Dashboard 已接入链上 batch 全流程入口（创建、加项、提交审批、审批、取消、查询）。
-
-### 阶段 4：Dashboard MVP
-
-目标：完成可演示的人类操作闭环。
-
-当前阶段补充说明：
-
-- 先落一个最小 Dashboard 服务，提供页面入口和摘要接口。
-- 下一轮再把 Control Plane / Relayer / Indexer 的数据真正渲染成表单与时间线。
-
-### 阶段 5：Agent Adapter Draft MVP
-
-目标：支持自然语言 / CSV -> draft intent，但必须人工确认后才能落链执行。
-
-当前阶段重点：
-
-- CSV / 自然语言输入转换为 draft schema
-- draft 默认附带风险提示
-- draft 必须带 `requiresHumanApproval: true`
-- 无人工确认不可进入执行路径
-
-### 阶段 6：最终收尾与演示交付
-
-目标：形成对外可交付成果。
-
-本阶段必须完成：
-
-- 更新 README
-- 补充 docs 中的快速使用与详细使用说明
-- 增加示例
-- 准备 demo 数据与脚本
-- 完成 demo 视频
-
-## 4. 核心功能范围
-
-第一轮必须完成：
-
-1. 策略系统
-- 金额上限
-- 接收方白名单
-- memo 规则
-
-2. Intent 与审批
-- 单笔 intent
-- 批量 intent
-- 人类可读审批内容
-- 审批留痕
-
-3. 执行系统
-- Relayer sponsor gas
-- 幂等执行
-- 失败重试（最多 3 次）
-
-4. 状态追踪与审计
-- `Approved/Submitted/Confirmed/Failed` 全状态可追踪
-- 链上 tx id 与业务 intent 可关联
-
-5. 前端
-- 创建 intent
-- 审批 intent
-- 查看执行日志
-- 失败重试操作
-
-6. Agent draft
-- 自然语言/CSV 转 draft
-- AI 输出必须人工审批后才能执行
-
-补充落地策略：
-
-- batch intent 分两步实施：
-  - 第一步（已完成）：Control Plane 编排批量单笔 intent，先完成端到端可用性。
-  - 第二步（已完成）：链上 batch 账户模型落地，后续逐步接入 Control Plane API。
-
-## 5. 当前阶段的现实优先级
-
-1. 文档对齐
-2. 扩展并发压力与失败恢复端到端回归
-3. demo 视频录制与交付归档
-4. PostgreSQL 兼容接入准备（保持 SQLite 默认）
-
-## 6. 质量门禁与提交规则
-
-### 每个大阶段都必须遵守
-
-1. 先更新文档，再开始对应阶段编码
-2. 按小改动提交 commit，不把多类改动揉成一个提交
-3. Rust/Anchor 改动必须带对应测试
-4. 本地凭据、钱包、环境文件不得推送到远端
-
-### 每个大阶段 push 前必须通过
-
-- `cargo fmt`
-- `cargo clippy`
-- `anchor build`
-- `cargo test`
-- `yarn run test:anchor:safe`（稳定链路）
-- 当前阶段新增模块的对应测试
-
-### 每个大阶段 push 前必须经过 codex 审查
-
-流程：
-
-1. 先本地通过全部检查
-2. 调用 codex 做代码审查
-3. 修复审查意见
-4. 再次调用 codex 审查
-5. 直到无阻断意见再 push
-
-## 7. 本地凭据与测试约定
-
-- 测试钱包、临时凭据、环境配置仅保存在本地
-- 相关文件必须由 `.gitignore` 覆盖
-- 演示数据可以固化，但敏感信息不得提交
-- 若需要本地 relayer 或测试 signer，优先存放在仓库忽略路径下
-
-## 8. 分阶段验收标准
-
-### 阶段 0
-
-- README、architecture、delivery-plan 与当前事实一致
-- 忽略规则覆盖本地凭据与环境文件
-
-### 阶段 1
-
-- 链上测试覆盖权限、状态迁移、边界、retry 上限、draft 与 batch 新增流程
-- 现有主流程测试继续通过
-
-### 阶段 2
-
-- Control Plane API 与链上状态一致
-- 可以查询并编排基础 intent 流程
-- 审计记录可追踪
-
-### 阶段 3
-
-- Relayer 可记录执行、失败与确认
-- Indexer/回写层能形成清晰时间线
-
-### 阶段 4
-
-- Dashboard 可启动、可访问，并提供 MVP 摘要接口
-- 后续可继续接入真实数据渲染
-
-### 阶段 3.5（已完成）
-
-- Control Plane 提供 batch 编排接口并记录审计日志
-- Relayer / Indexer 提供可查询 API，支持 Dashboard 拉取状态
-- Dashboard 支持单笔/批量 intent 创建与状态看板
-- 当前阶段新增能力必须有对应自动化测试
-
-### 阶段 3.8（已完成）
-
-- Rust 统一 API 可启动并提供 `/health` 与 `/api/*` 路由
-- 审计/幂等/执行/时间线存储默认走 SQLite，接口层可直接调用模块化存储
-- 与 legacy Control Plane 的代理路径可用，兼容原有调用方
-- Dashboard 可通过统一 API 完成链上 batch 的创建、加项、提交审批、审批、取消与查询
-
-### 阶段 5
-
-- Draft 输出符合 schema
-- 无人工确认不可进入执行路径
-- 链上 `create_draft_intent -> submit_draft_intent` 状态迁移可用
-
-### 阶段 6
-
-- README、docs、示例、demo 视频齐全
-- 单笔 intent 主闭环完整可演示
-- 最终交付物与文档一致
-
-## 9. Demo 必测脚本
-
-最终至少完成以下演示：
-
-1. 创建 policy
-2. 创建单笔 intent
-3. 完成人工审批
-4. Relayer 自动执行并回写状态
-5. 演示 1 笔失败 + 重试成功
-6. Dashboard 显示完整状态与 tx id
-7. 至少 1 笔 draft 由 Agent / CSV 生成并经人工确认后落链
-8. 最终文档与示例可独立复现流程
+- 统一后端入口稳定运行（Rust 单进程多线程，单端口）
+- 单笔与批次流程可完整演示
+- 审计/执行/时间线可追踪
+- API + Dashboard 双交付形态可独立使用
+- 文档、示例、demo 视频齐备

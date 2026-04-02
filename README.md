@@ -11,7 +11,7 @@ PolicyPay 是面向企业支付场景的「稳定币支付流程层」。
 - 付款规则（Policy）约束：金额上限、收款白名单、Memo 规则
 - 单笔付款单全生命周期：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
 - 批处理全流程：创建批次、加明细、提交审批、审批、取消、查询
-- 统一 API：`tokio + axum` 单入口，支持 `/api/*` 与 `/api/v1/*`
+- 统一 API：`tokio + axum` 单入口，统一版本化路径 `/api/v1/*`
 - 审计与可观测：审计日志、执行记录、时间线查询
 - 模块化存储：默认 SQLite，后续可平滑替换 PostgreSQL
 - 面向非技术用户的中文 Dashboard（同时保留 API 直调能力）
@@ -92,7 +92,7 @@ curl -X POST http://127.0.0.1:24100/api/v1/intents \
 
 ## API 文档
 
-- OpenAPI：`GET /openapi.json`、`GET /api/openapi.json`、`GET /api/v1/openapi.json`
+- OpenAPI：`GET /openapi.json`、`GET /api/v1/openapi.json`
 
 ## 测试与质量门禁
 
@@ -108,6 +108,7 @@ yarn run test:anchor:safe
 
 ## 文档索引
 
+- `docs/tech-stack-and-product-roadmap.md`：技术栈决策与产品路线
 - `docs/guides/quickstart.md`：快速启动
 - `docs/guides/usage.md`：详细接口与用法
 - `docs/architecture.md`：架构与模块边界

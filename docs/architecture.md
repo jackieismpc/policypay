@@ -1,407 +1,118 @@
-# PolicyPay 模块化架构
+# PolicyPay 架构说明（当前基线）
 
 ## 1. 架构目标
 
-在可控风险下，把稳定币支付从手工链上操作升级为可审批、可执行、可审计的业务流程。
+PolicyPay 的目标是把 Solana 稳定币转账升级为企业可用的流程系统：
 
-本项目采用“核心先定型、按真实现状递进落地”的策略：
+- 有规则约束（Policy）
+- 有审批门禁（Intent / BatchIntent）
+- 有执行追踪（Execution）
+- 有审计留痕（Audit / Timeline）
 
-- 先对齐文档与真实代码状态，再推进实现。
-- 先把链上底座打磨稳定，再逐层补齐离链闭环。
-- 主链路优先，锦上添花能力后置。
+## 2. 当前默认拓扑
 
-## 2. 当前实现基线
+- 对外单端口：`24100`
+- 默认后端入口：`services/policypay-api-rs`
+- 技术栈：`Rust + tokio + axum`
+- 默认 API 前缀：`/api/v1/*`
+- Dashboard：由 Rust 服务根路径 `GET /` 直接提供静态页面
 
-### 2.1 已实现部分
+说明：`app/src/server.ts` 仅作为可选开发代理（把 `/api/v1/*` 转发给 Rust API），不属于默认生产入口。
 
-当前仓库已存在链上最小原型：`programs/policy_pay/`。
+## 3. 模块边界
 
-已实现链上指令：
+### 3.1 链上（Onchain）
 
-- `create_policy`
-- `create_intent`
-- `create_draft_intent`
-- `submit_draft_intent`
-- `create_batch_intent`
-- `add_batch_item`
-- `submit_batch_for_approval`
-- `approve_batch_intent`
-- `cancel_batch_intent`
-- `approve_intent`
-- `execute_intent`
-- `settle_intent`
-- `retry_intent`
-- `cancel_intent`
-
-当前链上核心账户：
-
-- `PolicyAccount`
-- `PaymentIntent`
-- `BatchIntent`
-
-当前真实可达状态流：
-
-- 单笔：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
-- 批量：`Draft -> PendingApproval -> Approved | Cancelled`
-
-当前已覆盖的最小测试：
-
-- 主流程生命周期
-- 失败后重试再成功
-- 白名单约束
-- memo 必填约束
-- 权限边界
-- 非法状态迁移
-- 长度边界
-- retry 上限
-
-### 2.2 当前已落地的离链模块
-
-- `services/control-plane/`
-- `services/relayer/`
-- `services/indexer/`
-- `app/`
-- `modules/agent-adapter/`
-
-这些模块已经形成可演示闭环，其中 Dashboard 已升级为交互式工作台版本，并支持单端口组合部署（默认）。
-
-### 2.3 当前未实现部分
-
-- 更高阶存储后端（如 PostgreSQL）与迁移体系
-- Rust 统一 API 接管后的全链路压测结果与容量基线
-- 最终 demo 视频交付物
-
-## 3. 设计原则
-
-1. 领域模型以链上真实状态为基线
-- 当前以 `PolicyAccount`、`PaymentIntent`、`IntentStatus` 作为第一份真实领域模型来源。
-
-2. 一条指令只负责一次清晰的状态迁移
-- 继续沿用当前链上程序的状态迁移设计，便于测试、审计和错误定位。
-
-3. Control Plane 不替代链上事实
-- Control Plane 负责统一 API、业务映射和审计聚合，但链上账户仍是最终事实源。
-
-4. Draft 人工审批前置
-- Agent draft 和链上 draft 并行存在，但都必须经过人工确认后再进入执行路径。
-
-5. 共享抽象由复用需求驱动
-- 只有当 control plane、relayer、dashboard 确实共享类型或逻辑时，再抽取 `modules/domain` 等共享模块。
-
-6. 路由与异步优先 Rust 技术栈
-- 新增高并发路由/异步模块优先采用 `tokio + axum`，现有 Express 模块以兼容为主逐步演进。
-
-## 4. 模块划分
-
-### 4.1 Domain Module
+目录：`programs/policy_pay/`  
+技术：`Rust + Anchor`
 
 职责：
 
-- 定义统一实体、状态机、错误码与事件映射。
-- 复用链上模型并提供离链 DTO。
+- 管理 `PolicyAccount`、`PaymentIntent`、`BatchIntent`
+- 约束状态机与权限边界
+- 作为最终事实源
 
-核心实体：
+### 3.2 统一后端（Unified API）
 
-- `Policy`
-- `PaymentIntent`
-- `ApprovalRecord`
-- `ExecutionRecord`
-
-现状：
-
-- 当前尚未独立落地，短期内以链上模型为准。
-
-### 4.2 Onchain Program Module
+目录：`services/policypay-api-rs/`  
+技术：`Rust + tokio + axum`
 
 职责：
 
-- 持久化核心支付状态。
-- 强约束状态转移与基础策略校验。
+- 统一提供对外 API（`/api/v1/*`）
+- 调用链上程序完成业务编排
+- 提供幂等、审计、执行记录、时间线
+- 提供健康检查与 OpenAPI
 
-当前已实现：
+### 3.3 前端（Dashboard）
 
-- policy 创建
-- 单笔 intent 创建
-- 单笔 draft 创建与提交
-- batch intent 账户创建、加项、提交审批、审批、取消
-- 审批
-- 执行提交
-- 成功/失败结算
-- retry
-- cancel
-
-当前缺口：
-
-- 审计记录与事件仍可继续完善
-- 批处理执行态仍可继续细化（例如 item 级 submitted/confirmed/failed）
-
-### 4.3 Policy Engine Module
+目录：`app/static/dashboard.html`
 
 职责：
 
-- 校验 intent 是否满足组织策略。
-- 输出可读解释（允许/拒绝原因）。
+- 中文业务化操作界面
+- 支持单笔付款单、批次流程、审计与状态看板
+- 同时服务技术与非技术用户
 
-边界：
+### 3.4 适配与测试层（TypeScript）
 
-- 不执行链上交易。
-
-现状：
-
-- 当前最小策略校验已直接体现在链上程序中，后续再按复用需求抽离离链策略层。
-
-### 4.4 Control Plane Module
+目录：`tests/`、`modules/agent-adapter/`
 
 职责：
 
-- 提供统一 API。
-- 管理策略、审批、审计日志与 webhook。
-- 对链上账户与业务侧记录做映射。
+- Anchor 集成测试
+- 脚本与适配器能力
+- 前端交互与端到端验证
 
-边界：
+边界：TypeScript 不再承担默认后端核心语义。
 
-- 不替代链上事实。
-- 不绕过链上审批与状态机。
+## 4. API 约定
 
-当前范围：
+- 生产与文档统一使用：`/api/v1/*`
+- OpenAPI：`/openapi.json`、`/api/v1/openapi.json`
+- 旧兼容批量路径（`/intents/batch*`）已移除
 
-- 查询单个 policy
-- 查询单个 intent
-- 编排 `create_intent`
-- 编排 `create_intent` 批量模式（循环调用）
-- 编排 `create_draft_intent` 与 `submit_draft_intent`
-- 编排链上 `BatchIntent`（创建、加项、提交审批、审批、取消）
-- 编排 `approve_intent`
-- 编排 `approve_intent` 批量模式
-- 编排 `cancel_intent`
-- 编排 `retry_intent`
-- 记录最小本地审计日志
+## 5. 存储架构
 
-### 4.5 Execution Engine (Relayer) Module
+当前默认：SQLite（`POLICYPAY_SQLITE_PATH`）
 
-职责：
+设计要求：
 
-- 拉取已批准 intent。
-- 构造交易并代付 gas。
-- 提交、确认、失败重试、状态回写。
+- 存储访问按模块化边界实现
+- 默认开发/演示为 SQLite
+- 后续可平滑替换 PostgreSQL（不改变 API 契约）
+- JSON 仅作为本地 fallback，不作为正式部署主存储
 
-边界：
+## 6. 并发与性能策略
 
-- 不定义策略，不绕过审批。
+- 运行模型：单进程多线程（tokio runtime）
+- 对外模式：单入口单端口
+- 链上读写在阻塞任务池中执行，避免阻塞主 reactor
+- 端口策略：统一使用 `20000+`，避免核心系统端口冲突
 
-当前范围：
+## 7. 测试与质量门禁
 
-- 单笔执行记录
-- 批量执行记录
-- 失败原因记录与过滤查询
-- 确认回写
-- 模块化持久化（默认 SQLite，可切换 JSON）
+默认门禁：
 
-### 4.6 Dashboard Module
-
-职责：
-
-- 创建单笔/批量 intent。
-- 展示可读审批信息与执行状态。
-- 提供失败重试入口与审计视图。
-
-边界：
-
-- 不直接持有后端热钱包密钥。
-
-当前范围：
-
-- 交互式工作台页面
-- 单笔 intent 创建表单
-- 批量 intent 创建表单
-- 批量审批入口
-- 摘要、审计、执行、时间线面板
-- 默认单端口组合模式下，内嵌挂载 Control Plane / Relayer / Indexer
-- proxy 模式下，通过 dashboard 代理 API 聚合外部 Control Plane / Relayer / Indexer
-
-### 4.7 Agent Adapter Module
-
-职责：
-
-- 将自然语言/CSV 转换为 draft intent。
-- 输出结构化解释与风险提示。
-
-边界：
-
-- 只能草拟，不可直接执行。
-
-当前范围：
-
-- CSV draft 解析
-- 自然语言 draft 解析
-- CSV 批量 draft 解析
-- 自然语言批量 draft 解析
-- `requiresHumanApproval: true` 强制约束
-- 风险提示输出
-
-### 4.8 Indexer & Observability Module
-
-职责：
-
-- 订阅链上事件或轮询链上状态并回写。
-- 输出成功率、失败原因、处理延迟等指标。
-
-边界：
-
-- 不参与审批决策。
-
-当前范围：
-
-- 区分 `chain` / `relayer` 来源的时间线记录
-- 时间线 HTTP 查询接口（按 `intentId` / `source` 过滤）
-- 模块化持久化（默认 SQLite，可切换 JSON）
-
-### 4.9 Unified API Gateway Module（Rust）
-
-职责：
-
-- 作为默认离链统一入口，提供对外单端口 `/api/*` 路由。
-- 统一链上编排、Relayer、Indexer 语义，并统一幂等与审计处理。
-- 提供版本化 API（`/api/v1/*`）与 OpenAPI 描述。
-
-边界：
-
-- 不改变链上状态机，不绕过链上权限和审批约束。
-
-当前范围：
-
-- 技术栈：`tokio + axum`
-- 默认存储：SQLite（后续可扩展 PostgreSQL）
-- 后端入口：Rust 直接调用 `policy_pay`（已移除对 legacy control-plane 的运行时依赖）
-- 对外接口：`/api/intents*`、`/api/batches*`、`/api/audit-logs`、`/api/executions`、`/api/timeline`、`/openapi.json`
-
-## 5. 模块接口契约（可替换点）
-
-```text
-IntentRepository
-- create(intent)
-- get(intent_id)
-- list(filters)
-- update_status(intent_id, status)
-
-PolicyEvaluator
-- evaluate(intent, policy_set) -> {allowed, reasons[]}
-
-ApprovalService
-- request(intent_id)
-- approve(intent_id, approver, signature)
-
-ChainExecutor
-- submit(intent) -> tx_id
-- confirm(tx_id) -> {confirmed, error}
-- retry(intent_id) -> {queued, retry_count}
-
-DraftProvider
-- generate(input) -> draft_intent
-
-EventSink
-- publish(event)
+```bash
+cargo fmt --all
+cargo clippy -p policypay-api-rs --all-targets -- -D warnings
+cargo test
+anchor build
+yarn run test:anchor:safe
 ```
 
-## 6. 当前优先级排序
+说明：`anchor test` 在当前环境存在 validator 启动探测竞态，详见 `docs/guides/anchor-test-stability.md`。
 
-推荐实施顺序：
+## 8. 非目标（当前阶段）
 
-1. 文档对齐
-2. 链上 Program 收口与测试补强
-3. Control Plane MVP
-4. Relayer + Indexer MVP
-5. Dashboard MVP
-6. Agent Adapter Draft MVP
-7. 最终 README / docs / 示例 / demo 收尾
+- 不引入 Tauri 作为主交付形态
+- 不继续扩展 legacy TS control-plane 的核心语义
+- 不维护双后端并行的长期路径
 
-### 6.1 当前 Control Plane MVP 范围
+## 9. 参考文档
 
-当前阶段的 Control Plane 已扩展到单笔 + 批量编排：
-
-- 查询单个 policy
-- 查询单个 intent
-- 编排 `create_intent`
-- 编排 `create_intent` 批量模式
-- 编排 `approve_intent`
-- 编排 `approve_intent` 批量模式
-- 编排 `cancel_intent`
-- 编排 `retry_intent`
-- 记录本地审计日志（单笔和批量）
-
-### 6.2 当前 Relayer / Indexer MVP 范围
-
-当前阶段的后台闭环已经升级到可查询版本：
-
-- Relayer 提供单笔/批量执行任务记录、失败原因记录、确认回写
-- Relayer 提供按状态过滤查询
-- Indexer 提供时间线记录，区分链上状态与 relayer 状态来源
-- Indexer 提供时间线查询与过滤接口
-- 两者当前使用模块化存储，默认 SQLite（可按环境切换 JSON）
-
-### 6.3 当前 Dashboard MVP 范围
-
-当前阶段的 Dashboard 已升级为可操作工作台：
-
-- 单笔 intent 创建
-- 批量 intent 创建
-- 批量审批
-- 链上 batch 全流程入口（创建、加项、提交审批、审批、取消、查询）
-- 摘要、审计、执行、时间线四类面板
-- 中文业务语义表单（保留技术字段对照）
-- 可选 API Key 输入（适配启用鉴权环境）
-- 默认对接 Rust Unified API（可按部署需要接入兼容模式）
-
-### 6.4 当前 Agent Adapter MVP 范围
-
-当前阶段的 Agent Adapter 已支持单笔与批量草拟：
-
-- CSV draft
-- 自然语言 draft
-- CSV 批量 draft
-- 自然语言批量 draft
-- 风险提示
-- 强制人工审批前置
-
-## 7. 当前核心状态机
-
-### 7.1 当前实际链上状态机
-
-单笔：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
-
-批量：`Draft -> PendingApproval -> Approved | Cancelled`
-
-### 7.2 目标扩展方向
-
-- 为批量执行增加更细粒度 item 级别执行态（如 `Submitted` / `Confirmed` / `Failed`）
-- 将 legacy Express 路径保留为可选兼容层，不再作为默认后端入口
-
-## 8. 架构冻结点
-
-当前应冻结：
-
-1. 当前链上真实领域模型与状态机
-2. 链上错误码与测试边界
-3. Control Plane / Relayer / Indexer / Dashboard / Agent Adapter 的最小职责边界
-4. 本地凭据与测试环境约定
-5. 大阶段提交、审查和验证门禁
-
-## 9. 推荐仓库结构
-
-```text
-policypay/
-  README.md
-  docs/
-    architecture.md
-    delivery-plan.md
-  programs/
-    policy_pay/
-  services/
-    policypay-api-rs/
-    control-plane/
-    relayer/
-    indexer/
-  app/
-  modules/
-    agent-adapter/
-```
+- `docs/tech-stack-and-product-roadmap.md`
+- `docs/guides/quickstart.md`
+- `docs/guides/usage.md`
+- `docs/guides/anchor-test-stability.md`

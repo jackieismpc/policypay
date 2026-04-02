@@ -15,9 +15,8 @@
 
 默认入口：`http://127.0.0.1:24100`
 
-- 无版本：`/api/*`
 - 版本化：`/api/v1/*`
-- OpenAPI：`/openapi.json`、`/api/openapi.json`、`/api/v1/openapi.json`
+- OpenAPI：`/openapi.json`、`/api/v1/openapi.json`
 
 ## 3. 鉴权（可选）
 
@@ -66,7 +65,10 @@
 ```json
 {
   "policy": "<policy-pda>",
-  "approvalDigest": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  "approvalDigest": [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0
+  ]
 }
 ```
 
@@ -83,47 +85,7 @@
 }
 ```
 
-## 5. 批量流程
-
-### 5.1 兼容批量（循环单笔）
-
-创建：`POST /api/v1/intents/batch`
-
-```json
-{
-  "policy": "<policy-pda>",
-  "mode": "abort-on-error",
-  "items": [
-    {
-      "intentId": 201,
-      "recipient": "<recipient-a>",
-      "amount": 100,
-      "memo": "invoice-201",
-      "reference": "ref-201"
-    },
-    {
-      "intentId": 202,
-      "recipient": "<recipient-b>",
-      "amount": 200,
-      "memo": "invoice-202",
-      "reference": "ref-202"
-    }
-  ]
-}
-```
-
-审批：`POST /api/v1/intents/batch/approve`
-
-```json
-{
-  "policy": "<policy-pda>",
-  "mode": "continue-on-error",
-  "intentIds": [201, 202],
-  "approvalDigest": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-}
-```
-
-### 5.2 链上 BatchIntent（推荐）
+## 5. 批量流程（链上 BatchIntent）
 
 1. 创建批次：`POST /api/v1/batches`
 

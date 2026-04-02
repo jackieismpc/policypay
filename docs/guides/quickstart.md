@@ -45,9 +45,8 @@ yarn run dev:api-rs
 可访问：
 
 - Dashboard：`GET /`
-- API：`/api/*`
 - 版本化 API：`/api/v1/*`
-- OpenAPI：`/openapi.json`、`/api/openapi.json`、`/api/v1/openapi.json`
+- OpenAPI：`/openapi.json`、`/api/v1/openapi.json`
 
 ## 6. 最小调用示例
 
