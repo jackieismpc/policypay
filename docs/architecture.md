@@ -68,6 +68,7 @@
 ### 2.3 当前未实现部分
 
 - 更高阶存储后端（如 PostgreSQL）与迁移体系
+- Rust 统一 API 接管后的全链路压测结果与容量基线
 - 最终 demo 视频交付物
 
 ## 3. 设计原则
@@ -255,6 +256,24 @@
 - 时间线 HTTP 查询接口（按 `intentId` / `source` 过滤）
 - 模块化持久化（默认 SQLite，可切换 JSON）
 
+### 4.9 Unified API Gateway Module（Rust）
+
+职责：
+
+- 作为默认离链统一入口，提供对外单端口 `/api/*` 路由。
+- 聚合 Control Plane、Relayer、Indexer 语义，并统一幂等与审计处理。
+- 在迁移期兼容 legacy Control Plane 路径，避免一次性切换风险。
+
+边界：
+
+- 不改变链上状态机，不绕过链上权限和审批约束。
+
+当前范围：
+
+- 技术栈：`tokio + axum`
+- 默认存储：SQLite（后续可扩展 PostgreSQL）
+- 对外接口：`/api/intents*`、`/api/batches*`、`/api/audit-logs`、`/api/executions`、`/api/timeline`
+
 ## 5. 模块接口契约（可替换点）
 
 ```text
@@ -326,6 +345,7 @@ EventSink
 - 单笔 intent 创建
 - 批量 intent 创建
 - 批量审批
+- 链上 batch 全流程入口（创建、加项、提交审批、审批、取消、查询）
 - 摘要、审计、执行、时间线四类面板
 - 内置代理 API 聚合 Control Plane、Relayer、Indexer
 
@@ -351,7 +371,7 @@ EventSink
 ### 7.2 目标扩展方向
 
 - 为批量执行增加更细粒度 item 级别执行态（如 `Submitted` / `Confirmed` / `Failed`）
-- 将链上 batch 指令逐步接入 Control Plane 对外编排 API
+- 将 legacy Express 编排路径逐步下沉为兼容层，默认由 Rust 统一 API 接管
 
 ## 8. 架构冻结点
 
@@ -374,6 +394,7 @@ policypay/
   programs/
     policy_pay/
   services/
+    policypay-api-rs/
     control-plane/
     relayer/
     indexer/

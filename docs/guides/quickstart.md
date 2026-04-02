@@ -60,6 +60,7 @@ yarn run test:indexer
 yarn run test:dashboard
 yarn run test:agent-adapter
 yarn run test:e2e:offchain
+yarn run test:api-rs
 
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
@@ -76,18 +77,36 @@ anchor build
 
 ## 6. 启动方式
 
-### 默认：单端口组合模式（推荐）
+### 默认：Rust 单进程单端口（推荐）
 
 ```bash
-yarn run dev:dashboard
+# 终端 1：迁移期仍需运行 legacy control-plane
+yarn run dev:control-plane
+
+# 终端 2：启动 Rust 统一入口
+yarn run dev:api-rs
 ```
 
-默认端口：`24040`
+默认端口：`24100`
 
 说明：
 
-- 默认 `DASHBOARD_COMPOSITION_MODE=embedded`，对外单端口。
-- Control Plane / Relayer / Indexer 以内嵌模块方式挂载在同一进程内。
+- Rust Unified API 使用 `tokio + axum`，对外只暴露一个端口。
+- 默认提供 Dashboard 页面（`GET /`）和统一业务接口（`/api/*`）。
+- 审计、幂等、执行、时间线默认使用 SQLite。
+- 迁移期下 intent/batch 编排会代理到 legacy control-plane（默认 `http://127.0.0.1:24010`）。
+
+### 可选：Dashboard 网关接入 Rust API（兼容）
+
+```bash
+yarn run dev:api-rs
+POLICYPAY_API_RS_BASE_URL=http://127.0.0.1:24100 DASHBOARD_COMPOSITION_MODE=rust-proxy yarn run dev:dashboard
+```
+
+默认端口：
+
+- Rust Unified API `24100`
+- Dashboard `24040`
 
 ### 可选：独立多服务模式（兼容）
 
@@ -147,7 +166,8 @@ export POLICYPAY_STORAGE_DRIVER=json
 
 说明：
 
-- 单端口模式下，业务调用统一走 Dashboard 网关（`/api/*`）。
+- Rust 默认模式下，业务调用统一走 Rust Unified API（`/api/*`）。
+- Dashboard 模式下，业务调用统一走 Dashboard 网关（`/api/*`）。
 - 独立服务模式下，Dashboard 会转发到外部 Control Plane / Relayer / Indexer。
 
 ### Control Plane

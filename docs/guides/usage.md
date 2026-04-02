@@ -13,7 +13,7 @@
 
 1. 启动本地 validator（或使用已有 localnet）
 2. 构建并部署程序
-3. 启动 Dashboard（默认单端口组合模式）
+3. 启动 Rust Unified API（默认单端口）
 4. 打开 Dashboard 执行操作（或调用 `/api/*`）
 
 ## 2. 本地命令
@@ -25,13 +25,17 @@ anchor build
 # 按你的环境部署（示例）
 anchor deploy
 
-# 启动单端口网关（默认）
-yarn run dev:dashboard
+# 终端 1：迁移期仍需运行 legacy control-plane
+yarn run dev:control-plane
+
+# 终端 2：启动 Rust Unified API（默认）
+yarn run dev:api-rs
 ```
 
 ## 3. 默认地址与端口（20000+）
 
-- 对外入口（默认）：`http://127.0.0.1:24040`
+- 对外入口（默认）：`http://127.0.0.1:24100`
+- Dashboard 兼容网关（可选）：`http://127.0.0.1:24040`
 - 独立服务模式（proxy）可选端口：
   - Control Plane `24010`
   - Relayer `24020`
@@ -39,7 +43,9 @@ yarn run dev:dashboard
 
 ### 3.1 组合模式配置
 
-- `DASHBOARD_COMPOSITION_MODE=embedded`：默认单端口内聚模式
+- `POLICYPAY_RS_API_PORT`：Rust Unified API 端口（默认 `24100`）
+- `DASHBOARD_COMPOSITION_MODE=embedded`：Dashboard 内聚模式
+- `DASHBOARD_COMPOSITION_MODE=rust-proxy`：Dashboard 转发到 Rust Unified API
 - `DASHBOARD_COMPOSITION_MODE=proxy`：转发到外部服务
 - `DASHBOARD_PORT` 或 `POLICYPAY_PORT`：网关端口（默认 `24040`）
 
@@ -82,7 +88,25 @@ export POLICYPAY_STORAGE_DRIVER=json
 - 单笔：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
 - 批量：`Draft -> PendingApproval -> Approved | Cancelled`
 
-## 5. Control Plane
+## 5. Rust Unified API（默认）
+
+默认地址：`http://127.0.0.1:24100`
+
+当前能力：
+
+- `tokio + axum` 路由与异步运行时
+- `GET /` 提供 Dashboard 页面
+- `GET /health`
+- `GET /api/summary`
+- `/api/*` 统一接口（单笔、Draft、兼容批量、链上 BatchIntent）
+- 模块化 SQLite 存储（审计、幂等、执行、时间线）
+- 兼容代理 legacy Control Plane（用于平滑迁移）
+
+迁移期配置：
+
+- `LEGACY_CONTROL_PLANE_BASE_URL`：默认 `http://127.0.0.1:24010`
+
+## 6. Control Plane（legacy/兼容）
 
 默认地址：`http://127.0.0.1:24010`
 
@@ -124,7 +148,7 @@ export POLICYPAY_STORAGE_DRIVER=json
 - 当前 Control Plane 的批量接口默认兼容旧模式（循环调用 `create_intent` / `approve_intent`）。
 - 链上 `BatchIntent` 已可直接通过 `/batches/*` 接口编排。
 
-## 6. Relayer
+## 7. Relayer
 
 默认地址：`http://127.0.0.1:24020`
 
@@ -145,7 +169,7 @@ export POLICYPAY_STORAGE_DRIVER=json
 
 - `mode`: `abort-on-error` / `continue-on-error`
 
-## 7. Indexer
+## 8. Indexer
 
 默认地址：`http://127.0.0.1:24030`
 
@@ -161,7 +185,7 @@ export POLICYPAY_STORAGE_DRIVER=json
 - `POST /timeline/chain`
 - `POST /timeline/relayer`
 
-## 8. Dashboard
+## 9. Dashboard
 
 默认地址：`http://127.0.0.1:24040`
 
@@ -193,9 +217,10 @@ Dashboard 内部代理接口：
 说明：
 
 - `embedded` 模式下，Dashboard 会在同进程挂载 Control Plane / Relayer / Indexer。
+- `rust-proxy` 模式下，Dashboard 会转发到 `POLICYPAY_API_RS_BASE_URL`。
 - `proxy` 模式下，Dashboard 会转发到 `CONTROL_PLANE_BASE_URL` / `RELAYER_BASE_URL` / `INDEXER_BASE_URL`。
 
-## 9. Agent Adapter
+## 10. Agent Adapter
 
 模块路径：`modules/agent-adapter/`
 
@@ -209,7 +234,7 @@ Dashboard 内部代理接口：
 
 所有输出都包含 `requiresHumanApproval: true`。
 
-## 10. 测试建议顺序
+## 11. 测试建议顺序
 
 ```bash
 yarn run test:anchor:safe
@@ -219,6 +244,7 @@ yarn run test:indexer
 yarn run test:dashboard
 yarn run test:agent-adapter
 yarn run test:e2e:offchain
+yarn run test:api-rs
 
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
