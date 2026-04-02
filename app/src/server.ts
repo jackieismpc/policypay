@@ -1,11 +1,39 @@
 import express from "express";
+import { createApp as createControlPlaneApp } from "../../services/control-plane/src/app";
+import { defaultConfig as controlPlaneConfig } from "../../services/control-plane/src/config";
+import { createIndexerApp } from "../../services/indexer/src/app";
+import { createRelayerApp } from "../../services/relayer/src/app";
 
 const app = express();
-const port = Number(process.env.DASHBOARD_PORT ?? 24040);
-const controlPlaneBaseUrl =
+const port = Number(
+  process.env.DASHBOARD_PORT ?? process.env.POLICYPAY_PORT ?? 24040
+);
+
+type DashboardCompositionMode = "embedded" | "proxy";
+
+const hasExternalServiceUrls =
+  Boolean(process.env.CONTROL_PLANE_BASE_URL) ||
+  Boolean(process.env.RELAYER_BASE_URL) ||
+  Boolean(process.env.INDEXER_BASE_URL);
+
+const compositionMode: DashboardCompositionMode =
+  process.env.DASHBOARD_COMPOSITION_MODE === "embedded" ||
+  process.env.DASHBOARD_COMPOSITION_MODE === "proxy"
+    ? process.env.DASHBOARD_COMPOSITION_MODE
+    : hasExternalServiceUrls
+    ? "proxy"
+    : "embedded";
+
+const externalControlPlaneBaseUrl =
   process.env.CONTROL_PLANE_BASE_URL ?? "http://127.0.0.1:24010";
-const relayerBaseUrl = process.env.RELAYER_BASE_URL ?? "http://127.0.0.1:24020";
-const indexerBaseUrl = process.env.INDEXER_BASE_URL ?? "http://127.0.0.1:24030";
+const externalRelayerBaseUrl =
+  process.env.RELAYER_BASE_URL ?? "http://127.0.0.1:24020";
+const externalIndexerBaseUrl =
+  process.env.INDEXER_BASE_URL ?? "http://127.0.0.1:24030";
+
+const internalControlPlaneMount = "/_internal/control-plane";
+const internalRelayerMount = "/_internal/relayer";
+const internalIndexerMount = "/_internal/indexer";
 
 const dashboardPage = `<!doctype html>
 <html lang="zh-CN">
@@ -515,13 +543,47 @@ const respondProxy = async (
   }
 };
 
+const resolveBaseOrigin = (req: express.Request) => {
+  const host = req.get("host");
+  return `${req.protocol}://${host ?? `127.0.0.1:${port}`}`;
+};
+
+const resolveServiceBaseUrls = (req: express.Request) => {
+  if (compositionMode === "embedded") {
+    const origin = resolveBaseOrigin(req);
+
+    return {
+      controlPlaneBaseUrl: `${origin}${internalControlPlaneMount}`,
+      relayerBaseUrl: `${origin}${internalRelayerMount}`,
+      indexerBaseUrl: `${origin}${internalIndexerMount}`,
+    };
+  }
+
+  return {
+    controlPlaneBaseUrl: externalControlPlaneBaseUrl,
+    relayerBaseUrl: externalRelayerBaseUrl,
+    indexerBaseUrl: externalIndexerBaseUrl,
+  };
+};
+
 app.use(express.json());
+
+if (compositionMode === "embedded") {
+  app.use(
+    internalControlPlaneMount,
+    createControlPlaneApp(controlPlaneConfig())
+  );
+  app.use(internalRelayerMount, createRelayerApp());
+  app.use(internalIndexerMount, createIndexerApp());
+}
 
 app.get("/", (_req, res) => {
   res.type("html").send(dashboardPage);
 });
 
-app.get("/api/summary", async (_req, res) => {
+app.get("/api/summary", async (req, res) => {
+  const { controlPlaneBaseUrl, relayerBaseUrl, indexerBaseUrl } =
+    resolveServiceBaseUrls(req);
   const [audit, executions, timeline] = await Promise.all([
     fetchSafeItems(`${controlPlaneBaseUrl}/audit-logs`),
     fetchSafeItems(`${relayerBaseUrl}/executions`),
@@ -554,19 +616,23 @@ app.get("/api/summary", async (_req, res) => {
   });
 });
 
-app.get("/api/audit-logs", async (_req, res) => {
+app.get("/api/audit-logs", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
   await respondProxy(res, `${controlPlaneBaseUrl}/audit-logs`);
 });
 
-app.get("/api/executions", async (_req, res) => {
+app.get("/api/executions", async (req, res) => {
+  const { relayerBaseUrl } = resolveServiceBaseUrls(req);
   await respondProxy(res, `${relayerBaseUrl}/executions`);
 });
 
-app.get("/api/timeline", async (_req, res) => {
+app.get("/api/timeline", async (req, res) => {
+  const { indexerBaseUrl } = resolveServiceBaseUrls(req);
   await respondProxy(res, `${indexerBaseUrl}/timeline`);
 });
 
 app.post("/api/intents", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
   await respondProxy(res, `${controlPlaneBaseUrl}/intents`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -575,6 +641,7 @@ app.post("/api/intents", async (req, res) => {
 });
 
 app.post("/api/intents/batch", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
   await respondProxy(res, `${controlPlaneBaseUrl}/intents/batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -583,6 +650,7 @@ app.post("/api/intents/batch", async (req, res) => {
 });
 
 app.post("/api/intents/batch/approve", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
   await respondProxy(res, `${controlPlaneBaseUrl}/intents/batch/approve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -595,9 +663,12 @@ app.listen(port, () => {
     JSON.stringify({
       service: "dashboard",
       port,
-      controlPlaneBaseUrl,
-      relayerBaseUrl,
-      indexerBaseUrl,
+      compositionMode,
+      externalServices: {
+        controlPlaneBaseUrl: externalControlPlaneBaseUrl,
+        relayerBaseUrl: externalRelayerBaseUrl,
+        indexerBaseUrl: externalIndexerBaseUrl,
+      },
     })
   );
 });

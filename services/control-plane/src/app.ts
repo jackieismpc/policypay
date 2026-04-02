@@ -263,6 +263,28 @@ const summaryFromResults = (
   };
 };
 
+const createUnavailableClient = (reason: string): PolicyPayClientLike => {
+  const unavailableError = `control-plane client unavailable: ${reason}`;
+
+  const throwUnavailable = async (): Promise<never> => {
+    throw new Error(unavailableError);
+  };
+
+  return {
+    program: {
+      programId: {
+        toBase58: () => "unavailable",
+      },
+    } as PolicyPayClientLike["program"],
+    fetchPolicy: throwUnavailable,
+    fetchIntent: throwUnavailable,
+    createIntent: throwUnavailable,
+    approveIntent: throwUnavailable,
+    cancelIntent: throwUnavailable,
+    retryIntent: throwUnavailable,
+  };
+};
+
 export const createApp = (
   config: ControlPlaneConfig = defaultConfig(),
   dependencies: AppDependencies = {}
@@ -270,12 +292,28 @@ export const createApp = (
   const app = express();
   const auditLogStore =
     dependencies.auditLogStore ?? createAuditLogStore(config);
-  const client = dependencies.client ?? new PolicyPayClient(config);
+  let clientReady = true;
+  const client = (() => {
+    if (dependencies.client) {
+      return dependencies.client;
+    }
+
+    try {
+      return new PolicyPayClient(config);
+    } catch (error) {
+      clientReady = false;
+      return createUnavailableClient(String(error));
+    }
+  })();
 
   app.use(express.json());
 
   app.get("/health", (_req, res) => {
-    res.json({ ok: true, programId: client.program.programId.toBase58() });
+    res.json({
+      ok: clientReady,
+      programId: client.program.programId.toBase58(),
+      clientReady,
+    });
   });
 
   app.get("/audit-logs", (_req, res) => {
