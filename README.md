@@ -69,17 +69,17 @@ yarn run dev:api-rs
 ### 5. 最小 API 示例
 
 ```bash
-curl -X POST http://127.0.0.1:24100/api/v1/intents \
+curl -X POST http://127.0.0.1:24100/api/v1/intents/minimal \
   -H 'Content-Type: application/json' \
   -d '{
     "policy": "<policy-pda>",
-    "intentId": 101,
     "recipient": "<recipient-pubkey>",
     "amount": 100,
-    "memo": "invoice-101",
-    "reference": "ref-101"
+    "memo": "invoice-101"
   }'
 ```
+
+说明：`memo` 可省略，默认空字符串；`intentId` 与 `reference` 由后端自动生成。
 
 ## 关键配置
 

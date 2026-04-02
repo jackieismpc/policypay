@@ -29,8 +29,7 @@
 重要说明：
 
 - **这些字段不是 Solana 链上自动生成的**。
-- 现阶段由调用方显式传入（当前 API 契约）。
-- 后续会在后端代码层增加“最小输入接口”，由后端自动生成这些技术字段，再调用链上指令。
+- 现在已经提供后端最小输入接口，由后端代码层自动生成这些技术字段，再调用链上指令。
 
 ## 2. 默认入口与版本
 
@@ -50,7 +49,25 @@
 
 ## 4. 单笔付款流程
 
-### 4.1 创建单笔付款单
+### 4.1 业务最小输入创建（推荐）
+
+`POST /api/v1/intents/minimal`
+
+```json
+{
+  "policy": "<policy-pda>",
+  "recipient": "<recipient-pubkey>",
+  "amount": 100,
+  "memo": "invoice-101"
+}
+```
+
+说明：
+
+- `memo` 可省略，默认空字符串。
+- `intentId`、`reference` 由后端自动生成，并在响应中返回。
+
+### 4.2 完整字段创建（高级调用）
 
 `POST /api/v1/intents`
 
@@ -65,11 +82,16 @@
 }
 ```
 
-### 4.2 创建草稿单
+说明：
+
+- `memo` 可省略，默认空字符串。
+- `reference` 可省略，默认空字符串。
+
+### 4.3 创建草稿单
 
 `POST /api/v1/intents/draft`
 
-### 4.3 提交草稿审批
+### 4.4 提交草稿审批
 
 `POST /api/v1/intents/:intentId/submit`
 
@@ -79,7 +101,7 @@
 }
 ```
 
-### 4.4 审批单笔
+### 4.5 审批单笔
 
 `POST /api/v1/intents/:intentId/approve`
 
@@ -95,7 +117,7 @@
 
 说明：`approvalDigest` 可省略，默认 32 字节全 0。
 
-### 4.5 取消 / 重试
+### 4.6 取消 / 重试
 
 - `POST /api/v1/intents/:intentId/cancel`
 - `POST /api/v1/intents/:intentId/retry`
@@ -130,6 +152,8 @@
   "reference": "ref-50011"
 }
 ```
+
+说明：`memo`、`reference` 均可省略，默认空字符串。
 
 3. 提交审批：`POST /api/v1/batches/:batchId/submit`
 
