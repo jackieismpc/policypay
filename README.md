@@ -1,68 +1,75 @@
 # PolicyPay
 
-PolicyPay 是一个面向企业与团队的稳定币支付流程层，用于把“付款请求”变成可审批、可执行、可审计的标准化流程。
+PolicyPay 是面向企业支付场景的「稳定币支付流程层」。
 
-核心闭环：`Intent 生成 -> 人类审批 -> 执行提交 -> 状态回写 -> 审计追踪`。
+它把原始链上转账动作升级为可管理的业务流程：
+
+`付款单创建 -> 人工审批 -> 链上提交 -> 执行追踪 -> 审计留痕`
 
 ## 产品能力
 
-- 策略控制：金额上限、收款白名单、Memo 规则
-- 单笔支付流：支持 `Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
-- 批量支付流：支持 `BatchIntent` 草拟、提交审批、审批、取消
-- 控制面编排：支持单笔、Draft、兼容批量（循环单笔）与链上 BatchIntent 两套路径
-- 执行与重试：失败可追踪并可重试
-- 全链路审计：审批、执行、时间线可查询
-- Agent Draft：CSV/自然语言生成草稿，强制人工审批前置
+- 付款规则（Policy）约束：金额上限、收款白名单、Memo 规则
+- 单笔付款单全生命周期：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+- 批处理全流程：创建批次、加明细、提交审批、审批、取消、查询
+- 统一 API：`tokio + axum` 单入口，支持 `/api/*` 与 `/api/v1/*`
+- 审计与可观测：审计日志、执行记录、时间线查询
+- 模块化存储：默认 SQLite，后续可平滑替换 PostgreSQL
+- 面向非技术用户的中文 Dashboard（同时保留 API 直调能力）
 
 ## 产品优势
 
-- 审批与执行分离：降低误操作风险
-- 链上与离链协同：既有强约束，又有业务可扩展性
-- 模块化存储：默认 SQLite，后续可平滑切换 PostgreSQL
-- 单端口对外交付：默认对外仅暴露一个入口端口，便于企业部署与网关接入
+- 审批与执行分离，降低误操作风险
+- 链上状态机与离链审计协同，便于合规与追责
+- 单进程单入口，部署与运维成本更低
+- 默认端口均在 `20000+`，避免占用核心系统端口
 
-## 架构形态（当前默认）
+## 当前架构（默认）
 
-- 对外：单端口 `24100`（Rust Unified API，`tokio + axum`）
-- 对内：模块化存储（默认 SQLite）+ legacy Control Plane 兼容代理（迁移期）
-- 兼容：也支持 Dashboard 网关模式（`24040`）与独立多服务部署（proxy 模式）
+- 对外单端口：`24100`
+- 后端入口：Rust Unified API（`tokio + axum`）
+- 链上交互：Rust 直接调用 `policy_pay`（已移除对 legacy control-plane 的运行时依赖）
+- 存储：SQLite（默认 `./data/policypay.sqlite`）
 
-## 快速开始
+## Quick Start
 
 ### 前置条件
 
-- Rust 工具链
+- Rust toolchain
 - Solana CLI
 - Anchor CLI
 - Node.js 18+
 - Yarn
 
-### 安装与构建
+### 1. 安装依赖
 
 ```bash
 yarn install
+```
+
+### 2. 准备本地钱包（仅开发使用）
+
+```bash
 solana-keygen new --no-bip39-passphrase -s -o ./wallets/localnet.json
+```
+
+### 3. 构建链上程序
+
+```bash
 anchor build
 ```
 
-### 启动（默认单端口入口，Rust 主导）
+### 4. 启动 Rust 统一入口
 
 ```bash
-# 终端 1：迁移期仍需运行 legacy control-plane
-yarn run dev:control-plane
-
-# 终端 2：启动 Rust 统一入口
 yarn run dev:api-rs
 ```
 
-访问：`http://127.0.0.1:24100/`
+打开 Dashboard：`http://127.0.0.1:24100/`
 
-## 最小使用示例
-
-创建单笔 intent（通过网关入口）：
+### 5. 最小 API 示例
 
 ```bash
-curl -X POST http://127.0.0.1:24100/api/intents \
+curl -X POST http://127.0.0.1:24100/api/v1/intents \
   -H 'Content-Type: application/json' \
   -d '{
     "policy": "<policy-pda>",
@@ -74,52 +81,36 @@ curl -X POST http://127.0.0.1:24100/api/intents \
   }'
 ```
 
-## 配置说明
+## 关键配置
 
-### 运行模式
+- `POLICYPAY_RS_API_PORT`：统一入口端口（默认 `24100`）
+- `POLICYPAY_SQLITE_PATH`：SQLite 路径（默认 `./data/policypay.sqlite`）
+- `POLICYPAY_RPC_URL` / `SOLANA_RPC_URL`：Solana RPC（默认 `http://127.0.0.1:8899`）
+- `POLICYPAY_WALLET_PATH` / `ANCHOR_WALLET`：签名钱包路径（默认 `./wallets/localnet.json`）
+- `POLICY_PAY_PROGRAM_ID`：可选，覆盖默认 Program ID
+- `POLICYPAY_API_KEY`：可选，启用后写接口需 `x-api-key` 或 `Authorization: Bearer <key>`
 
-- Rust Unified API（默认）：`yarn run dev:api-rs`
-- `DASHBOARD_COMPOSITION_MODE=embedded`：Dashboard 单端口内聚模式（TS 兼容模式）
-- `DASHBOARD_COMPOSITION_MODE=rust-proxy`：Dashboard 转发到 Rust Unified API
-- `DASHBOARD_COMPOSITION_MODE=proxy`：网关代理模式（转发到独立服务）
+## API 文档
 
-说明：
+- OpenAPI：`GET /openapi.json`、`GET /api/openapi.json`、`GET /api/v1/openapi.json`
 
-- 迁移期下 Rust Unified API 的 intent/batch 编排接口通过 `LEGACY_CONTROL_PLANE_BASE_URL` 代理到 legacy control-plane。
-
-### 端口
-
-- `POLICYPAY_RS_API_PORT`：默认 `24100`
-- `DASHBOARD_PORT` 或 `POLICYPAY_PORT`：默认 `24040`（Dashboard 兼容模式）
-- 独立服务模式下可使用：
-  - `CONTROL_PLANE_PORT`（默认 `24010`）
-  - `RELAYER_PORT`（默认 `24020`）
-  - `INDEXER_PORT`（默认 `24030`）
-
-### 存储（默认 SQLite）
-
-默认无需配置，自动使用：
-
-- `POLICYPAY_STORAGE_DRIVER=sqlite`
-- `POLICYPAY_SQLITE_PATH=./data/policypay.sqlite`
-
-按模块覆盖：
-
-- `CONTROL_PLANE_STORAGE_DRIVER` / `CONTROL_PLANE_SQLITE_PATH`
-- `RELAYER_STORAGE_DRIVER` / `RELAYER_SQLITE_PATH`
-- `INDEXER_STORAGE_DRIVER` / `INDEXER_SQLITE_PATH`
-
-如需回退 JSON：
+## 测试与质量门禁
 
 ```bash
-export POLICYPAY_STORAGE_DRIVER=json
+cargo fmt --all
+cargo clippy -p policypay-api-rs --all-targets -- -D warnings
+cargo test
+anchor build
+yarn run test:anchor:safe
 ```
+
+说明：在部分环境中，`anchor test` 可能出现 validator 启动探测卡住。建议优先使用 `yarn run test:anchor:safe`。
 
 ## 文档索引
 
 - `docs/guides/quickstart.md`：快速启动
-- `docs/guides/usage.md`：详细使用与接口说明
+- `docs/guides/usage.md`：详细接口与用法
 - `docs/architecture.md`：架构与模块边界
-- `docs/guides/anchor-test-stability.md`：Anchor 稳定测试方案
-- `examples/README.md`：API 与链上调用示例
-- `demo/DEMO_SCRIPT.md`：产品演示脚本
+- `docs/guides/anchor-test-stability.md`：Anchor 测试稳定性与排查
+- `examples/README.md`：示例
+- `demo/DEMO_SCRIPT.md`：演示脚本

@@ -133,7 +133,7 @@
 当前缺口：
 
 - 审计记录与事件仍可继续完善
-- Dashboard UI 尚未提供链上 batch 全流程操作入口（当前可通过 API 使用）
+- 批处理执行态仍可继续细化（例如 item 级 submitted/confirmed/failed）
 
 ### 4.3 Policy Engine Module
 
@@ -261,8 +261,8 @@
 职责：
 
 - 作为默认离链统一入口，提供对外单端口 `/api/*` 路由。
-- 聚合 Control Plane、Relayer、Indexer 语义，并统一幂等与审计处理。
-- 在迁移期兼容 legacy Control Plane 路径，避免一次性切换风险。
+- 统一链上编排、Relayer、Indexer 语义，并统一幂等与审计处理。
+- 提供版本化 API（`/api/v1/*`）与 OpenAPI 描述。
 
 边界：
 
@@ -272,7 +272,8 @@
 
 - 技术栈：`tokio + axum`
 - 默认存储：SQLite（后续可扩展 PostgreSQL）
-- 对外接口：`/api/intents*`、`/api/batches*`、`/api/audit-logs`、`/api/executions`、`/api/timeline`
+- 后端入口：Rust 直接调用 `policy_pay`（已移除对 legacy control-plane 的运行时依赖）
+- 对外接口：`/api/intents*`、`/api/batches*`、`/api/audit-logs`、`/api/executions`、`/api/timeline`、`/openapi.json`
 
 ## 5. 模块接口契约（可替换点）
 
@@ -347,7 +348,9 @@ EventSink
 - 批量审批
 - 链上 batch 全流程入口（创建、加项、提交审批、审批、取消、查询）
 - 摘要、审计、执行、时间线四类面板
-- 内置代理 API 聚合 Control Plane、Relayer、Indexer
+- 中文业务语义表单（保留技术字段对照）
+- 可选 API Key 输入（适配启用鉴权环境）
+- 默认对接 Rust Unified API（可按部署需要接入兼容模式）
 
 ### 6.4 当前 Agent Adapter MVP 范围
 
@@ -371,7 +374,7 @@ EventSink
 ### 7.2 目标扩展方向
 
 - 为批量执行增加更细粒度 item 级别执行态（如 `Submitted` / `Confirmed` / `Failed`）
-- 将 legacy Express 编排路径逐步下沉为兼容层，默认由 Rust 统一 API 接管
+- 将 legacy Express 路径保留为可选兼容层，不再作为默认后端入口
 
 ## 8. 架构冻结点
 

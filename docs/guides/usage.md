@@ -1,255 +1,210 @@
 # PolicyPay Detailed Usage
 
-本文档描述当前仓库已经落地的完整可用路径：
+本文档说明当前默认方案（Rust Unified API）下的详细使用方式。
 
-- 链上 program（Policy + PaymentIntent + BatchIntent）
-- Control Plane（单笔/批量编排 + 审计）
-- Relayer（单笔/批量执行 + 确认）
-- Indexer（时间线写入与查询）
-- Dashboard（交互式工作台）
-- Agent Adapter（单笔/批量 draft）
+## 1. 术语映射（业务语义）
 
-## 1. 启动顺序
+- 支付规则编号：`policy`（链上 Policy 账户地址）
+- 付款单号：`intentId`
+- 批次编号：`batchId`
+- 收款地址：`recipient`
+- 付款备注：`memo`
+- 业务流水号：`reference`
 
-1. 启动本地 validator（或使用已有 localnet）
-2. 构建并部署程序
-3. 启动 Rust Unified API（默认单端口）
-4. 打开 Dashboard 执行操作（或调用 `/api/*`）
+## 2. 默认入口与版本
 
-## 2. 本地命令
+默认入口：`http://127.0.0.1:24100`
 
-```bash
-yarn install
-anchor build
+- 无版本：`/api/*`
+- 版本化：`/api/v1/*`
+- OpenAPI：`/openapi.json`、`/api/openapi.json`、`/api/v1/openapi.json`
 
-# 按你的环境部署（示例）
-anchor deploy
+## 3. 鉴权（可选）
 
-# 终端 1：迁移期仍需运行 legacy control-plane
-yarn run dev:control-plane
+当设置 `POLICYPAY_API_KEY` 后，写接口（`POST`）需要携带凭据。
 
-# 终端 2：启动 Rust Unified API（默认）
-yarn run dev:api-rs
+二选一：
+
+- `x-api-key: <key>`
+- `Authorization: Bearer <key>`
+
+## 4. 单笔付款流程
+
+### 4.1 创建单笔付款单
+
+`POST /api/v1/intents`
+
+```json
+{
+  "policy": "<policy-pda>",
+  "intentId": 101,
+  "recipient": "<recipient-pubkey>",
+  "amount": 100,
+  "memo": "invoice-101",
+  "reference": "ref-101"
+}
 ```
 
-## 3. 默认地址与端口（20000+）
+### 4.2 创建草稿单
 
-- 对外入口（默认）：`http://127.0.0.1:24100`
-- Dashboard 兼容网关（可选）：`http://127.0.0.1:24040`
-- 独立服务模式（proxy）可选端口：
-  - Control Plane `24010`
-  - Relayer `24020`
-  - Indexer `24030`
+`POST /api/v1/intents/draft`
 
-### 3.1 组合模式配置
+### 4.3 提交草稿审批
 
-- `POLICYPAY_RS_API_PORT`：Rust Unified API 端口（默认 `24100`）
-- `DASHBOARD_COMPOSITION_MODE=embedded`：Dashboard 内聚模式
-- `DASHBOARD_COMPOSITION_MODE=rust-proxy`：Dashboard 转发到 Rust Unified API
-- `DASHBOARD_COMPOSITION_MODE=proxy`：转发到外部服务
-- `DASHBOARD_PORT` 或 `POLICYPAY_PORT`：网关端口（默认 `24040`）
+`POST /api/v1/intents/:intentId/submit`
 
-## 4. 存储配置（模块化）
-
-默认：SQLite
-
-- `POLICYPAY_STORAGE_DRIVER=sqlite`
-- `POLICYPAY_SQLITE_PATH=./data/policypay.sqlite`
-
-按服务覆盖：
-
-- Control Plane: `CONTROL_PLANE_STORAGE_DRIVER` / `CONTROL_PLANE_SQLITE_PATH`
-- Relayer: `RELAYER_STORAGE_DRIVER` / `RELAYER_SQLITE_PATH`
-- Indexer: `INDEXER_STORAGE_DRIVER` / `INDEXER_SQLITE_PATH`
-
-切换 JSON：
-
-```bash
-export POLICYPAY_STORAGE_DRIVER=json
+```json
+{
+  "policy": "<policy-pda>"
+}
 ```
 
-### 4.1 链上新增能力（Draft + BatchIntent）
+### 4.4 审批单笔
 
-单笔指令新增：
+`POST /api/v1/intents/:intentId/approve`
 
-- `create_draft_intent`
-- `submit_draft_intent`
+```json
+{
+  "policy": "<policy-pda>",
+  "approvalDigest": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+}
+```
 
-批量指令新增：
+说明：`approvalDigest` 可省略，默认 32 字节全 0。
 
-- `create_batch_intent`
-- `add_batch_item`
-- `submit_batch_for_approval`
-- `approve_batch_intent`
-- `cancel_batch_intent`
+### 4.5 取消 / 重试
 
-状态机：
+- `POST /api/v1/intents/:intentId/cancel`
+- `POST /api/v1/intents/:intentId/retry`
 
-- 单笔：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
-- 批量：`Draft -> PendingApproval -> Approved | Cancelled`
+```json
+{
+  "policy": "<policy-pda>"
+}
+```
 
-## 5. Rust Unified API（默认）
+## 5. 批量流程
 
-默认地址：`http://127.0.0.1:24100`
+### 5.1 兼容批量（循环单笔）
 
-当前能力：
+创建：`POST /api/v1/intents/batch`
 
-- `tokio + axum` 路由与异步运行时
-- `GET /` 提供 Dashboard 页面
+```json
+{
+  "policy": "<policy-pda>",
+  "mode": "abort-on-error",
+  "items": [
+    {
+      "intentId": 201,
+      "recipient": "<recipient-a>",
+      "amount": 100,
+      "memo": "invoice-201",
+      "reference": "ref-201"
+    },
+    {
+      "intentId": 202,
+      "recipient": "<recipient-b>",
+      "amount": 200,
+      "memo": "invoice-202",
+      "reference": "ref-202"
+    }
+  ]
+}
+```
+
+审批：`POST /api/v1/intents/batch/approve`
+
+```json
+{
+  "policy": "<policy-pda>",
+  "mode": "continue-on-error",
+  "intentIds": [201, 202],
+  "approvalDigest": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+}
+```
+
+### 5.2 链上 BatchIntent（推荐）
+
+1. 创建批次：`POST /api/v1/batches`
+
+```json
+{
+  "policy": "<policy-pda>",
+  "batchId": 5001,
+  "mode": "abort-on-error"
+}
+```
+
+2. 添加明细：`POST /api/v1/batches/:batchId/items`
+
+```json
+{
+  "policy": "<policy-pda>",
+  "intentId": 50011,
+  "recipient": "<recipient>",
+  "amount": 100,
+  "memo": "invoice-50011",
+  "reference": "ref-50011"
+}
+```
+
+3. 提交审批：`POST /api/v1/batches/:batchId/submit`
+
+```json
+{
+  "policy": "<policy-pda>"
+}
+```
+
+4. 审批批次：`POST /api/v1/batches/:batchId/approve`
+
+```json
+{
+  "policy": "<policy-pda>"
+}
+```
+
+5. 取消批次：`POST /api/v1/batches/:batchId/cancel`
+
+```json
+{
+  "policy": "<policy-pda>"
+}
+```
+
+6. 查询批次：`GET /api/v1/policies/:policy/batches/:batchId`
+
+## 6. 观测与运维接口
+
 - `GET /health`
-- `GET /api/summary`
-- `/api/*` 统一接口（单笔、Draft、兼容批量、链上 BatchIntent）
-- 模块化 SQLite 存储（审计、幂等、执行、时间线）
-- 兼容代理 legacy Control Plane（用于平滑迁移）
+- `GET /api/v1/summary`
+- `GET /api/v1/audit-logs`
+- `GET /api/v1/executions`
+- `GET /api/v1/executions/:intentId`
+- `POST /api/v1/executions`
+- `POST /api/v1/executions/batch`
+- `POST /api/v1/executions/:intentId/confirm`
+- `GET /api/v1/timeline`
+- `POST /api/v1/timeline/chain`
+- `POST /api/v1/timeline/relayer`
 
-迁移期配置：
+## 7. Dashboard 使用说明
 
-- `LEGACY_CONTROL_PLANE_BASE_URL`：默认 `http://127.0.0.1:24010`
+Dashboard 地址：`http://127.0.0.1:24100/`
 
-## 6. Control Plane（legacy/兼容）
+- 页面字段已采用中文业务命名（保留技术字段对照）
+- 批量创建支持“每行一条”输入：
+  - `付款单号,收款地址,金额,备注,业务流水号`
+- 顶部支持可选 API Key 输入（用于对接启用鉴权的环境）
 
-默认地址：`http://127.0.0.1:24010`
-
-### 5.1 查询接口
-
-- `GET /health`
-- `GET /audit-logs`
-- `GET /policies/:mint`
-- `GET /policies/:policy/intents/:intentId`
-- `GET /policies/:policy/batches/:batchId`
-
-### 5.2 单笔编排
-
-- `POST /intents`
-- `POST /intents/draft`
-- `POST /intents/:intentId/submit`
-- `POST /intents/:intentId/approve`
-- `POST /intents/:intentId/cancel`
-- `POST /intents/:intentId/retry`
-
-### 5.3 批量编排
-
-- `POST /intents/batch`
-  - `mode`: `abort-on-error` 或 `continue-on-error`
-  - `items`: intent 列表
-- `POST /intents/batch/approve`
-  - `intentIds`: intent id 列表
-  - `approvalDigest` 可选（默认 32 字节全 0）
-- `POST /batches`
-  - `batchId`: batch id
-  - `mode`: `abort-on-error` 或 `continue-on-error`
-- `POST /batches/:batchId/items`
-- `POST /batches/:batchId/submit`
-- `POST /batches/:batchId/approve`
-- `POST /batches/:batchId/cancel`
-
-说明：
-
-- 当前 Control Plane 的批量接口默认兼容旧模式（循环调用 `create_intent` / `approve_intent`）。
-- 链上 `BatchIntent` 已可直接通过 `/batches/*` 接口编排。
-
-## 7. Relayer
-
-默认地址：`http://127.0.0.1:24020`
-
-### 6.1 查询接口
-
-- `GET /health`
-- `GET /executions`
-- `GET /executions?status=failed|submitted|confirmed`
-- `GET /executions/:intentId`
-
-### 6.2 执行接口
-
-- `POST /executions`
-- `POST /executions/batch`
-- `POST /executions/:intentId/confirm`
-
-`POST /executions/batch` 同样支持：
-
-- `mode`: `abort-on-error` / `continue-on-error`
-
-## 8. Indexer
-
-默认地址：`http://127.0.0.1:24030`
-
-### 7.1 查询接口
-
-- `GET /health`
-- `GET /timeline`
-- `GET /timeline?intentId=101`
-- `GET /timeline?intentId=101&source=chain`
-
-### 7.2 写入接口
-
-- `POST /timeline/chain`
-- `POST /timeline/relayer`
-
-## 9. Dashboard
-
-默认地址：`http://127.0.0.1:24040`
-
-工作台能力：
-
-- 创建单笔 intent
-- 批量创建 intent
-- 批量审批 intent
-- 查看摘要、审计日志、执行记录、时间线
-
-Dashboard 内部代理接口：
-
-- `GET /api/summary`
-- `GET /api/audit-logs`
-- `GET /api/executions`
-- `GET /api/timeline`
-- `POST /api/intents`
-- `POST /api/intents/draft`
-- `POST /api/intents/:intentId/submit`
-- `POST /api/intents/batch`
-- `POST /api/intents/batch/approve`
-- `GET /api/policies/:policy/batches/:batchId`
-- `POST /api/batches`
-- `POST /api/batches/:batchId/items`
-- `POST /api/batches/:batchId/submit`
-- `POST /api/batches/:batchId/approve`
-- `POST /api/batches/:batchId/cancel`
-
-说明：
-
-- `embedded` 模式下，Dashboard 会在同进程挂载 Control Plane / Relayer / Indexer。
-- `rust-proxy` 模式下，Dashboard 会转发到 `POLICYPAY_API_RS_BASE_URL`。
-- `proxy` 模式下，Dashboard 会转发到 `CONTROL_PLANE_BASE_URL` / `RELAYER_BASE_URL` / `INDEXER_BASE_URL`。
-
-## 10. Agent Adapter
-
-模块路径：`modules/agent-adapter/`
-
-已支持：
-
-- `parseCsvDraft`
-- `parseNaturalLanguageDraft`
-- `parseCsvBatchDraft`
-- `parseNaturalLanguageBatchDraft`
-- `assertHumanApprovalRequired`
-
-所有输出都包含 `requiresHumanApproval: true`。
-
-## 11. 测试建议顺序
+## 8. 测试建议顺序
 
 ```bash
-yarn run test:anchor:safe
-yarn run test:control-plane
-yarn run test:relayer
-yarn run test:indexer
-yarn run test:dashboard
-yarn run test:agent-adapter
-yarn run test:e2e:offchain
-yarn run test:api-rs
-
 cargo fmt --all
-cargo clippy --all-targets -- -D warnings
+cargo clippy -p policypay-api-rs --all-targets -- -D warnings
 cargo test
 anchor build
+yarn run test:anchor:safe
 ```
 
-如果需要排查 `anchor test` 启动竞态和端口冲突问题，请参考：`docs/guides/anchor-test-stability.md`。
+`anchor test` 在部分环境可能卡在 validator 启动探测阶段，详见：`docs/guides/anchor-test-stability.md`。

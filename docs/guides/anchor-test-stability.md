@@ -17,6 +17,10 @@
 - 现象：后续执行出现 `rpc port ... already in use`。
 - 结论：如果没有先清理残留进程，重复执行会放大失败概率。
 
+3. 在部分环境中会出现“validator 已启动但 `anchor test` 长时间无输出”的卡住现象。
+- 现象：`ps` 可见 `solana-test-validator --ledger .anchor/test-ledger ...` 正常运行，`anchor test` 进程仍未进入 TS 测试阶段。
+- 结论：这属于启动编排时序问题（探测/接管顺序不稳定），不是单纯程序未编译或端口不可用。
+
 ## 稳定执行顺序（推荐）
 
 使用仓库脚本：
@@ -36,6 +40,11 @@ yarn run test:anchor:safe
 7. 运行 `yarn run test:anchor:ts`。
 8. 退出时自动关闭 validator。
 
+附：2026-04-02 实测结果
+
+- `anchor test`：在当前环境复现“长时间无输出卡住”。
+- `yarn run test:anchor:safe`：9 个用例全部通过。
+
 ## 环境变量
 
 可按需覆盖：
@@ -51,6 +60,13 @@ yarn run test:anchor:safe
 
 1. 端口被非 validator 进程占用
 - 先检查并释放端口：`lsof -nP -iTCP:<port> -sTCP:LISTEN`
+
+如果是本仓库测试残留，可先清理：
+
+```bash
+pkill -f "anchor test" || true
+pkill -f "solana-test-validator --ledger .anchor/test-ledger" || true
+```
 
 2. 钱包文件不存在
 - 先生成：
