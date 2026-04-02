@@ -30,16 +30,15 @@
   - Control Plane MVP
   - Relayer MVP
   - Indexer MVP
-  - Dashboard MVP
+  - Dashboard Workbench（交互式）
   - Agent Adapter MVP
 
 ### 当前未完成
 
-- batch intent 未实现
+- batch intent 链上账户模型未实现（当前已实现 control-plane 编排批量）
 - `Draft` 尚未作为链上可达流程落地
-- Dashboard 仍是 MVP，不是完整交互式前端
 - Relayer / Indexer 当前仍先用本地 JSON 存储
-- 最终文档、示例和 demo 交付物仍需补齐
+- 最终 demo 视频仍需录制
 
 ## 2. 实施原则
 
@@ -77,6 +76,17 @@
 
 - 当前先完成最小可演示后端闭环：执行记录、确认回写、失败原因、时间线索引。
 - 当前先使用本地 JSON 存储验证执行模型，后续再升级为更正式的持久化层。
+
+### 阶段 3.5：Batch 编排与 Dashboard 工作台（当前执行）
+
+目标：在不改变现有链上账户模型的前提下，先完成可用的批量操作闭环和可交互前端。
+
+当前阶段补充说明：
+
+- batch intent 先由 Control Plane 编排为多次 `create_intent` 调用，确保可审计和可追踪。
+- Relayer / Indexer 先提供可查询 API，供 Dashboard 直接消费。
+- Dashboard 从静态入口升级为可操作页面，覆盖单笔创建、批量创建、状态追踪。
+- 当前阶段继续沿用本地 JSON 存储，不引入数据库迁移。
 
 ### 阶段 4：Dashboard MVP
 
@@ -143,6 +153,12 @@
 6. Agent draft
 - 自然语言/CSV 转 draft
 - AI 输出必须人工审批后才能执行
+
+补充落地策略：
+
+- batch intent 分两步实施：
+  - 第一步（当前阶段）：Control Plane 编排批量单笔 intent，先完成端到端可用性。
+  - 第二步（后续阶段）：评估链上 batch 账户模型，减少批量场景链上交互次数。
 
 ## 5. 当前阶段的现实优先级
 
@@ -214,6 +230,13 @@
 
 - Dashboard 可启动、可访问，并提供 MVP 摘要接口
 - 后续可继续接入真实数据渲染
+
+### 阶段 3.5（当前执行）
+
+- Control Plane 提供 batch 编排接口并记录审计日志
+- Relayer / Indexer 提供可查询 API，支持 Dashboard 拉取状态
+- Dashboard 支持单笔/批量 intent 创建与状态看板
+- 当前阶段新增能力必须有对应自动化测试
 
 ### 阶段 5
 

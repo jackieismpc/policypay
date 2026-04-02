@@ -54,15 +54,14 @@
 - `app/`
 - `modules/agent-adapter/`
 
-这些模块当前都还是 MVP，但已经形成最小可运行闭环。
+这些模块已经形成可演示闭环，其中 Dashboard 已升级为交互式工作台版本。
 
 ### 2.3 当前未实现部分
 
-- batch intent
+- batch intent 链上账户模型
 - 链上 Draft 流程
 - 更正式的持久化层
-- 完整交互式 Dashboard
-- 最终示例与 demo 交付物
+- 最终 demo 视频交付物
 
 说明：`IntentStatus` 中虽然已有 `Draft`，但链上尚未提供 Draft 的可达流程，因此当前仍建议将 Draft 先作为离链概念处理。
 
@@ -159,7 +158,9 @@
 - 查询单个 policy
 - 查询单个 intent
 - 编排 `create_intent`
+- 编排 `create_intent` 批量模式（循环调用）
 - 编排 `approve_intent`
+- 编排 `approve_intent` 批量模式
 - 编排 `cancel_intent`
 - 编排 `retry_intent`
 - 记录最小本地审计日志
@@ -178,8 +179,9 @@
 
 当前范围：
 
-- 最小执行记录
-- 失败原因记录
+- 单笔执行记录
+- 批量执行记录
+- 失败原因记录与过滤查询
 - 确认回写
 - 本地 JSON 持久化
 
@@ -197,9 +199,12 @@
 
 当前范围：
 
-- 单页 Dashboard 入口
-- MVP 摘要接口
-- 为后续接入 Control Plane / Relayer / Indexer 预留页面承载层
+- 交互式工作台页面
+- 单笔 intent 创建表单
+- 批量 intent 创建表单
+- 批量审批入口
+- 摘要、审计、执行、时间线面板
+- 通过 dashboard 代理 API 聚合 Control Plane / Relayer / Indexer
 
 ### 4.7 Agent Adapter Module
 
@@ -216,6 +221,8 @@
 
 - CSV draft 解析
 - 自然语言 draft 解析
+- CSV 批量 draft 解析
+- 自然语言批量 draft 解析
 - `requiresHumanApproval: true` 强制约束
 - 风险提示输出
 
@@ -233,6 +240,7 @@
 当前范围：
 
 - 区分 `chain` / `relayer` 来源的时间线记录
+- 时间线 HTTP 查询接口（按 `intentId` / `source` 过滤）
 - 本地 JSON 持久化
 
 ## 5. 模块接口契约（可替换点）
@@ -277,38 +285,46 @@ EventSink
 
 ### 6.1 当前 Control Plane MVP 范围
 
-当前阶段的 Control Plane 只做最小闭环：
+当前阶段的 Control Plane 已扩展到单笔 + 批量编排：
 
 - 查询单个 policy
 - 查询单个 intent
 - 编排 `create_intent`
+- 编排 `create_intent` 批量模式
 - 编排 `approve_intent`
+- 编排 `approve_intent` 批量模式
 - 编排 `cancel_intent`
 - 编排 `retry_intent`
-- 记录最小本地审计日志
+- 记录本地审计日志（单笔和批量）
 
 ### 6.2 当前 Relayer / Indexer MVP 范围
 
-当前阶段的后台闭环先做最小实现：
+当前阶段的后台闭环已经升级到可查询版本：
 
-- Relayer 提供执行任务记录、失败原因记录、确认回写
+- Relayer 提供单笔/批量执行任务记录、失败原因记录、确认回写
+- Relayer 提供按状态过滤查询
 - Indexer 提供时间线记录，区分链上状态与 relayer 状态来源
+- Indexer 提供时间线查询与过滤接口
 - 两者当前先基于本地 JSON 存储，确保单笔 intent 演示链路完整
 
 ### 6.3 当前 Dashboard MVP 范围
 
-当前阶段的 Dashboard 先提供最小前端入口：
+当前阶段的 Dashboard 已升级为可操作工作台：
 
-- 单页仪表盘入口
-- MVP 摘要接口
-- 为后续接入 Control Plane、Relayer、Indexer 预留页面承载层
+- 单笔 intent 创建
+- 批量 intent 创建
+- 批量审批
+- 摘要、审计、执行、时间线四类面板
+- 内置代理 API 聚合 Control Plane、Relayer、Indexer
 
 ### 6.4 当前 Agent Adapter MVP 范围
 
-当前阶段的 Agent Adapter 先提供最小草拟能力：
+当前阶段的 Agent Adapter 已支持单笔与批量草拟：
 
 - CSV draft
 - 自然语言 draft
+- CSV 批量 draft
+- 自然语言批量 draft
 - 风险提示
 - 强制人工审批前置
 

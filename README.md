@@ -6,7 +6,14 @@ PolicyPay 是一个面向团队、企业和 AI Agent 的稳定币支付操作层
 
 ## 当前仓库状态
 
-当前仓库已经不再是纯 Anchor 脚手架。
+当前仓库已经不再是纯 Anchor 脚手架，而是一个已经跑通最小闭环的黑客松版本。
+
+### 当前执行阶段
+
+- 当前按 `docs/delivery-plan.md` 推进阶段 `3.5`：
+  - 通过 Control Plane 编排批量 intent
+  - 将 Dashboard 升级为可交互工作台
+  - 为 Relayer / Indexer 增加可查询接口供前端消费
 
 ### 已实现
 
@@ -22,19 +29,28 @@ PolicyPay 是一个面向团队、企业和 AI Agent 的稳定币支付操作层
 - 已有 Anchor 测试：`tests/policy_pay.ts`
 - 已实现的链上最小状态流：
   - `PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+- 已有最小可运行离链模块：
+  - Control Plane MVP
+  - Relayer MVP
+  - Indexer MVP
+  - Dashboard Workbench（交互式）
+  - Agent Adapter MVP
 
 ### 当前缺口
 
 - `IntentStatus` 中虽然有 `Draft`，但链上尚未落地 Draft 流程
-- 批量 intent 尚未实现
-- Dashboard 仍是 MVP，还未接成完整交互式创建/审批/重试工作台
+- 批量 intent 链上账户模型尚未实现（当前阶段先落地 control-plane 编排批量）
 - Relayer / Indexer 当前仍先用本地 JSON 存储验证闭环
-- `migrations/deploy.ts` 仍是默认 Anchor 占位脚本
+- 最终演示视频仍需按 `demo/DEMO_SCRIPT.md` 录制
 
 ## 文档导航
 
 - `docs/architecture.md`：当前实现、目标架构、模块边界与阶段策略
 - `docs/delivery-plan.md`：分阶段实施顺序、质量门禁、验收与交付要求
+- `docs/guides/quickstart.md`：当前仓库的快速启动指南
+- `docs/guides/usage.md`：详细接口与工作台使用说明
+- `examples/README.md`：接口调用与 draft 输入示例
+- `demo/DEMO_SCRIPT.md`：演示脚本与视频录制建议
 
 ## 核心能力目标
 
@@ -56,38 +72,14 @@ tests/                # Anchor TS 测试
 docs/                 # 项目文档
 app/                  # Dashboard MVP 目录
 services/
-  control-plane/      # 当前阶段新增的最小控制面
-  relayer/            # 当前阶段新增的最小执行服务
-  indexer/            # 当前阶段新增的最小时间线索引服务
+  control-plane/      # 控制面（单笔/批量编排 + 审计）
+  relayer/            # 执行服务（单笔/批量执行 + 状态查询）
+  indexer/            # 时间线索引服务（链上/执行来源）
 modules/
-  agent-adapter/      # 当前阶段新增的最小 draft 适配层
+  agent-adapter/      # draft 适配层（单笔/批量）
+examples/             # 接口与输入示例
+demo/                 # 演示脚本与视频材料
 ```
-
-## 推荐实施顺序
-
-1. 先更新文档，对齐当前事实与实施计划
-2. 收口链上 Program，并补齐测试缺口
-3. 实现 Control Plane MVP
-4. 实现 Relayer + Indexer MVP
-5. 实现 Dashboard MVP
-6. 实现 Agent Adapter Draft MVP
-7. 最终更新 README、补 docs、示例和 demo 视频
-
-说明：`Draft` 目前优先作为离链概念处理，待 Agent Adapter 接入后再决定是否链上化。
-
-## 开发与提交流程
-
-- 每个大阶段先更新对应文档，再开始编码
-- 每个大阶段按小改动提交 commit
-- 每个大阶段 push 前先调用 codex 做代码审查，并修复到无阻断意见
-- Rust/Anchor 改动必须带对应测试
-- 本地测试凭据、钱包、环境文件不得推送到远端
-- 每个大阶段 push 前至少通过：
-  - `cargo fmt`
-  - `cargo clippy`
-  - `anchor build`
-  - `cargo test`
-  - `anchor test`
 
 ## 快速开始
 
@@ -103,7 +95,8 @@ modules/
 yarn install
 solana-keygen new --no-bip39-passphrase -s -o ./wallets/localnet.json
 anchor build
-yarn run test:anchor:local
+# 若本地 8899 端口冲突，可改为独立 validator + deploy 后执行 test:anchor:ts
+yarn run test:anchor:ts
 yarn run test:control-plane
 yarn run test:relayer
 yarn run test:indexer
@@ -116,9 +109,44 @@ yarn run test:agent-adapter
 - `wallets/localnet.json` 仅用于本地开发和测试，不会被提交到远端。
 - 运行本地 Anchor 测试前，请先启动本地 validator，或在已有本地集群上执行 `solana airdrop` 给测试钱包注资。
 
-## 近期目标
+## 本地运行各模块
 
-1. 在现有 `policy_pay` 基础上继续补齐 batch intent 和更完整审计字段
-2. 把 Dashboard 从页面入口升级为真实交互式工作台
-3. 把 Relayer / Indexer 从本地 JSON 存储升级为更正式的持久化闭环
-4. 在最终阶段补齐 README、docs、示例与 demo 视频
+### Control Plane
+
+```bash
+yarn run dev:control-plane
+```
+
+### Relayer
+
+```bash
+yarn run dev:relayer
+```
+
+### Dashboard
+
+```bash
+yarn run dev:dashboard
+```
+
+### Indexer
+
+```bash
+yarn run dev:indexer
+```
+
+## 当前可演示能力
+
+- 链上策略与 intent 生命周期
+- Control Plane 单笔/批量 intent 编排与批量审批
+- Relayer 单笔/批量执行记录、失败原因与确认回写
+- Indexer 时间线写入与查询过滤
+- Dashboard 交互式工作台（创建、批量创建、批量审批、状态面板）
+- CSV / 自然语言 draft 单笔与批量解析（强制人工审批）
+
+## 下一步优先事项
+
+1. 评估并落地链上 batch 账户模型
+2. 落地更正式的持久化层
+3. 增加端到端回归测试与稳定性指标
+4. 按 `demo/DEMO_SCRIPT.md` 录制最终 demo 视频
