@@ -134,8 +134,16 @@ export POLICYPAY_STORAGE_DRIVER=json
 - `GET /api/executions`
 - `GET /api/timeline`
 - `POST /api/intents`
+- `POST /api/intents/draft`
+- `POST /api/intents/:intentId/submit`
 - `POST /api/intents/batch`
 - `POST /api/intents/batch/approve`
+- `GET /api/policies/:policy/batches/:batchId`
+- `POST /api/batches`
+- `POST /api/batches/:batchId/items`
+- `POST /api/batches/:batchId/submit`
+- `POST /api/batches/:batchId/approve`
+- `POST /api/batches/:batchId/cancel`
 
 说明：
 
@@ -148,12 +156,20 @@ export POLICYPAY_STORAGE_DRIVER=json
 - `GET /audit-logs`
 - `GET /policies/:mint`
 - `GET /policies/:policy/intents/:intentId`
+- `GET /policies/:policy/batches/:batchId`
 - `POST /intents`
+- `POST /intents/draft`
+- `POST /intents/:intentId/submit`
 - `POST /intents/batch`
 - `POST /intents/:intentId/approve`
 - `POST /intents/batch/approve`
 - `POST /intents/:intentId/cancel`
 - `POST /intents/:intentId/retry`
+- `POST /batches`
+- `POST /batches/:batchId/items`
+- `POST /batches/:batchId/submit`
+- `POST /batches/:batchId/approve`
+- `POST /batches/:batchId/cancel`
 
 ### Relayer
 

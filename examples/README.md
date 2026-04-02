@@ -61,7 +61,62 @@ curl -X POST http://127.0.0.1:24010/intents/batch/approve \
   }'
 ```
 
-## 示例 4：Relayer 批量执行
+## 示例 4：Control Plane 创建单笔 Draft 并提交审批
+
+```bash
+curl -X POST http://127.0.0.1:24010/intents/draft \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "policy": "<policy-pda>",
+    "intentId": 301,
+    "recipient": "<recipient-pubkey>",
+    "amount": 100,
+    "memo": "invoice-301",
+    "reference": "ref-301"
+  }'
+
+curl -X POST http://127.0.0.1:24010/intents/301/submit \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "policy": "<policy-pda>"
+  }'
+```
+
+## 示例 5：Control Plane 链上 BatchIntent 编排
+
+```bash
+curl -X POST http://127.0.0.1:24010/batches \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "policy": "<policy-pda>",
+    "batchId": 9001,
+    "mode": "continue-on-error"
+  }'
+
+curl -X POST http://127.0.0.1:24010/batches/9001/items \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "policy": "<policy-pda>",
+    "intentId": 900101,
+    "recipient": "<recipient-a>",
+    "amount": 150,
+    "memo": "invoice-900101",
+    "reference": "ref-900101"
+  }'
+
+curl -X POST http://127.0.0.1:24010/batches/9001/submit \
+  -H 'Content-Type: application/json' \
+  -d '{"policy":"<policy-pda>"}'
+
+curl -X POST http://127.0.0.1:24010/batches/9001/approve \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "policy": "<policy-pda>",
+    "approvalDigest": [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+  }'
+```
+
+## 示例 6：Relayer 批量执行
 
 ```bash
 curl -X POST http://127.0.0.1:24020/executions/batch \
@@ -85,7 +140,7 @@ curl -X POST http://127.0.0.1:24020/executions/batch \
   }'
 ```
 
-## 示例 5：Indexer 写入和查询时间线
+## 示例 7：Indexer 写入和查询时间线
 
 ```bash
 curl -X POST http://127.0.0.1:24030/timeline/chain \
@@ -107,7 +162,7 @@ curl -X POST http://127.0.0.1:24030/timeline/relayer \
 curl 'http://127.0.0.1:24030/timeline?intentId=201'
 ```
 
-## 示例 6：Agent Adapter CSV draft（单笔）
+## 示例 8：Agent Adapter CSV draft（单笔）
 
 CSV 输入：
 
@@ -132,7 +187,7 @@ recipient-1,100,invoice-1,ref-1
 }
 ```
 
-## 示例 7：Agent Adapter CSV draft（批量）
+## 示例 9：Agent Adapter CSV draft（批量）
 
 CSV 多行输入：
 
@@ -160,7 +215,7 @@ recipient-2,200,invoice-2,ref-2
 }
 ```
 
-## 示例 8：Anchor 单笔 Draft 创建并提交审批
+## 示例 10：Anchor 单笔 Draft 创建并提交审批
 
 ```ts
 await program.methods
@@ -189,7 +244,7 @@ await program.methods
   .rpc();
 ```
 
-## 示例 9：Anchor BatchIntent 草拟、提交与审批
+## 示例 11：Anchor BatchIntent 草拟、提交与审批
 
 ```ts
 await program.methods

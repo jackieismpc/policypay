@@ -43,7 +43,7 @@
 
 ### 当前未完成
 
-- Control Plane 当前批量编排默认仍是多次 `create_intent` 调用，尚未切换到链上 `BatchIntent` 指令路径
+- Dashboard UI 尚未接入链上 batch 全流程操作入口（当前通过 API 可用）
 - 仍需继续扩展并发压力与失败恢复场景的端到端回归覆盖
 - 最终 demo 视频仍需录制
 
@@ -107,6 +107,17 @@
 - 新增链上批量账户与指令：`create_batch_intent`、`add_batch_item`、`submit_batch_for_approval`、`approve_batch_intent`、`cancel_batch_intent`。
 - Anchor 测试新增 draft 与 batch 生命周期、权限和状态迁移覆盖。
 - 保留现有 Control Plane 批量编排接口，作为链上 batch 接口接入前的兼容路径。
+
+### 阶段 3.7：Control Plane 对接链上 Draft / BatchIntent（已完成）
+
+目标：让离链编排接口可以直接驱动链上 `Draft` 与 `BatchIntent` 指令路径。
+
+阶段结果：
+
+- 已新增 Control Plane draft 编排接口（创建 draft、提交 draft）。
+- 已新增 Control Plane 链上 batch 编排接口（创建 batch、加项、提交审批、审批、取消）。
+- 已保留旧的 `/intents/batch` 兼容模式（循环单笔），支持平滑迁移调用方。
+- 已补齐新增接口的自动化测试、示例与使用文档。
 
 ### 阶段 4：Dashboard MVP
 

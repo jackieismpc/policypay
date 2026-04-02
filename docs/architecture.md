@@ -132,7 +132,7 @@
 当前缺口：
 
 - 审计记录与事件仍可继续完善
-- Control Plane 尚未默认切换到链上 `BatchIntent` 模式
+- Dashboard UI 尚未提供链上 batch 全流程操作入口（当前可通过 API 使用）
 
 ### 4.3 Policy Engine Module
 
@@ -168,6 +168,8 @@
 - 查询单个 intent
 - 编排 `create_intent`
 - 编排 `create_intent` 批量模式（循环调用）
+- 编排 `create_draft_intent` 与 `submit_draft_intent`
+- 编排链上 `BatchIntent`（创建、加项、提交审批、审批、取消）
 - 编排 `approve_intent`
 - 编排 `approve_intent` 批量模式
 - 编排 `cancel_intent`
