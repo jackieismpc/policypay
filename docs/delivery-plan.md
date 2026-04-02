@@ -2,7 +2,7 @@
 
 ## 1. 当前阶段判断
 
-当前仓库已经有链上最小原型，但整体产品仍未形成完整闭环。
+当前仓库已经有链上最小原型，并且已经具备最小离链闭环，但整体产品仍未形成最终可交付版本。
 
 ### 当前已实现
 
@@ -22,15 +22,24 @@
   - 失败后重试
   - 白名单
   - memo 约束
+  - 权限边界
+  - 非法状态迁移
+  - 长度边界
+  - retry 上限
+- 已有最小：
+  - Control Plane MVP
+  - Relayer MVP
+  - Indexer MVP
+  - Dashboard MVP
+  - Agent Adapter MVP
 
 ### 当前未完成
 
-- 权限边界与错误码测试仍需补齐
 - batch intent 未实现
 - `Draft` 尚未作为链上可达流程落地
-- Control Plane / Relayer / Indexer / Dashboard / Agent Adapter 仍未落地
-- `app/` 为空
-- `migrations/deploy.ts` 仍是默认占位脚本
+- Dashboard 仍是 MVP，不是完整交互式前端
+- Relayer / Indexer 当前仍先用本地 JSON 存储
+- 最终文档、示例和 demo 交付物仍需补齐
 
 ## 2. 实施原则
 
@@ -46,48 +55,13 @@
 
 目标：让文档、目录、真实能力和开发流程一致。
 
-本阶段输出：
-
-- 更新 `README.md`
-- 更新 `docs/architecture.md`
-- 更新 `docs/delivery-plan.md`
-- 补充 `.gitignore`，明确本地凭据、钱包、环境文件不推远端
-
-要求：
-
-- README 不再把当前仓库描述为 `demo1` scaffold
-- 文档明确区分“已实现”和“待实现”
-- 写清新的实施顺序和质量门禁
-
 ### 阶段 1：链上 Program 收口与测试补强
 
 目标：把 `programs/policy_pay` 打磨成稳定底座。
 
-本阶段重点：
-
-- 补权限边界测试
-- 补非法状态迁移测试
-- 补长度边界测试
-- 补 retry 上限测试
-- 把失败断言尽量升级为错误码断言
-- 评估是否需要最小事件/审计字段，为后续 indexer 预留
-
-本阶段暂不做：
-
-- 不急于启用链上 `Draft`
-- 不急于扩展 batch intent
-
 ### 阶段 2：Control Plane MVP
 
 目标：建立最小离链业务层，统一查询、编排与审计。
-
-本阶段重点：
-
-- 查询 policy / intent
-- 编排 create / approve / cancel / retry 等动作
-- 统一错误映射
-- 记录最小审计日志
-- 固化本地运行与测试配置约定
 
 当前阶段补充说明：
 
@@ -99,14 +73,6 @@
 
 目标：打通自动执行、失败重试、状态回写闭环。
 
-本阶段重点：
-
-- 自动拉取 approved intent
-- 幂等提交
-- 失败重试
-- 状态回写
-- 记录 tx signature、失败原因、retry 次数和时间线
-
 当前阶段补充说明：
 
 - 当前先完成最小可演示后端闭环：执行记录、确认回写、失败原因、时间线索引。
@@ -115,14 +81,6 @@
 ### 阶段 4：Dashboard MVP
 
 目标：完成可演示的人类操作闭环。
-
-本阶段重点：
-
-- 复用现有 `app/` 目录做最小前端
-- 支持创建 intent
-- 支持审批与取消
-- 展示执行状态
-- 提供失败重试入口
 
 当前阶段补充说明：
 
@@ -133,15 +91,12 @@
 
 目标：支持自然语言 / CSV -> draft intent，但必须人工确认后才能落链执行。
 
-本阶段重点：
+当前阶段重点：
 
-- Draft schema
-- 结构化解释与风险提示
-- 人工确认后再调用链上 `create_intent`
-
-说明：
-
-- 当前阶段优先把 Draft 作为离链概念处理，不在主链路未稳定前扩大链上状态机。
+- CSV / 自然语言输入转换为 draft schema
+- draft 默认附带风险提示
+- draft 必须带 `requiresHumanApproval: true`
+- 无人工确认不可进入执行路径
 
 ### 阶段 6：最终收尾与演示交付
 
@@ -191,19 +146,11 @@
 
 ## 5. 当前阶段的现实优先级
 
-虽然批量 intent 和 agent draft 属于第一轮目标，但按当前仓库现状，优先级应为：
-
 1. 文档对齐
 2. 链上底座与测试补强
 3. 单笔 intent 离链闭环
 4. batch intent
 5. agent draft
-
-原因：
-
-- 当前唯一成熟代码资产在链上程序和测试
-- 非链上模块尚无现成基础
-- 过早同时推进 batch、dashboard、agent 容易扩大面并拖慢主闭环
 
 ## 6. 质量门禁与提交规则
 
@@ -260,14 +207,13 @@
 
 ### 阶段 3
 
-- Relayer 可自动执行 approved intent
-- 失败可重试并保留失败原因
+- Relayer 可记录执行、失败与确认
 - Indexer/回写层能形成清晰时间线
 
 ### 阶段 4
 
-- Dashboard 可创建、审批、查看状态、触发重试
-- 人类可读字段完整展示
+- Dashboard 可启动、可访问，并提供 MVP 摘要接口
+- 后续可继续接入真实数据渲染
 
 ### 阶段 5
 

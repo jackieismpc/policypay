@@ -41,19 +41,30 @@
 - 失败后重试再成功
 - 白名单约束
 - memo 必填约束
+- 权限边界
+- 非法状态迁移
+- 长度边界
+- retry 上限
 
-### 2.2 当前未实现部分
+### 2.2 当前已落地的离链模块
 
-以下模块仍基本停留在文档阶段：
+- `services/control-plane/`
+- `services/relayer/`
+- `services/indexer/`
+- `app/`
+- `modules/agent-adapter/`
 
-- Control Plane
-- Relayer / Execution Engine
-- Indexer / Observability
-- Dashboard
-- Agent Adapter
-- Batch intent
+这些模块当前都还是 MVP，但已经形成最小可运行闭环。
 
-说明：`IntentStatus` 中虽然已有 `Draft`，但链上尚未提供 Draft 的可达流程，因此当前建议将 Draft 先作为离链概念处理。
+### 2.3 当前未实现部分
+
+- batch intent
+- 链上 Draft 流程
+- 更正式的持久化层
+- 完整交互式 Dashboard
+- 最终示例与 demo 交付物
+
+说明：`IntentStatus` 中虽然已有 `Draft`，但链上尚未提供 Draft 的可达流程，因此当前仍建议将 Draft 先作为离链概念处理。
 
 ## 3. 设计原则
 
@@ -111,9 +122,8 @@
 
 当前缺口：
 
-- 权限与错误边界测试仍需补齐
 - batch intent 未实现
-- 审计记录与事件仍需完善
+- 审计记录与事件仍可继续完善
 - Draft 尚未链上化
 
 ### 4.3 Policy Engine Module
@@ -144,9 +154,15 @@
 - 不替代链上事实。
 - 不绕过链上审批与状态机。
 
-当前建议：
+当前范围：
 
-- 先实现薄 Control Plane MVP，只做查询、编排和最小审计。
+- 查询单个 policy
+- 查询单个 intent
+- 编排 `create_intent`
+- 编排 `approve_intent`
+- 编排 `cancel_intent`
+- 编排 `retry_intent`
+- 记录最小本地审计日志
 
 ### 4.5 Execution Engine (Relayer) Module
 
@@ -160,9 +176,12 @@
 
 - 不定义策略，不绕过审批。
 
-当前建议：
+当前范围：
 
-- 在 Control Plane MVP 之后实现，避免后台执行逻辑先于业务契约成型。
+- 最小执行记录
+- 失败原因记录
+- 确认回写
+- 本地 JSON 持久化
 
 ### 4.6 Dashboard Module
 
@@ -176,9 +195,11 @@
 
 - 不直接持有后端热钱包密钥。
 
-当前建议：
+当前范围：
 
-- 优先复用现有 `app/` 目录实现 MVP，而不是先为目录结构扩容。
+- 单页 Dashboard 入口
+- MVP 摘要接口
+- 为后续接入 Control Plane / Relayer / Indexer 预留页面承载层
 
 ### 4.7 Agent Adapter Module
 
@@ -191,10 +212,12 @@
 
 - 只能草拟，不可直接执行。
 
-当前建议：
+当前范围：
 
-- 先做离链 Draft schema。
-- 人工确认后再创建链上 intent。
+- CSV draft 解析
+- 自然语言 draft 解析
+- `requiresHumanApproval: true` 强制约束
+- 风险提示输出
 
 ### 4.8 Indexer & Observability Module
 
@@ -207,9 +230,10 @@
 
 - 不参与审批决策。
 
-当前建议：
+当前范围：
 
-- 与 Relayer 一起实现最小回写闭环。
+- 区分 `chain` / `relayer` 来源的时间线记录
+- 本地 JSON 持久化
 
 ## 5. 模块接口契约（可替换点）
 
@@ -239,12 +263,6 @@ EventSink
 - publish(event)
 ```
 
-替换示例：
-
-- 更换数据库：替换 `IntentRepository`
-- 更换 LLM：替换 `DraftProvider`
-- 更换 RPC 或执行策略：替换 `ChainExecutor`
-
 ## 6. 当前优先级排序
 
 推荐实施顺序：
@@ -269,12 +287,6 @@ EventSink
 - 编排 `retry_intent`
 - 记录最小本地审计日志
 
-说明：
-
-- Control Plane 当前不引入数据库，审计先落到本地 JSON 文件。
-- Control Plane 当前不替代链上执行，仅负责查询、编排与审计留痕。
-- 后续 Relayer / Indexer 会在此基础上接入自动执行与状态回写。
-
 ### 6.2 当前 Relayer / Indexer MVP 范围
 
 当前阶段的后台闭环先做最小实现：
@@ -282,11 +294,6 @@ EventSink
 - Relayer 提供执行任务记录、失败原因记录、确认回写
 - Indexer 提供时间线记录，区分链上状态与 relayer 状态来源
 - 两者当前先基于本地 JSON 存储，确保单笔 intent 演示链路完整
-
-说明：
-
-- 这一阶段先验证执行与回写模型，不直接引入复杂队列或数据库。
-- 下一阶段 Dashboard 会直接消费这些时间线与执行记录。
 
 ### 6.3 当前 Dashboard MVP 范围
 
@@ -296,10 +303,14 @@ EventSink
 - MVP 摘要接口
 - 为后续接入 Control Plane、Relayer、Indexer 预留页面承载层
 
-说明：
+### 6.4 当前 Agent Adapter MVP 范围
 
-- 当前版本先确保可启动、可访问、可测试。
-- 下一轮再把创建 intent、审批、重试、时间线渲染成真实交互界面。
+当前阶段的 Agent Adapter 先提供最小草拟能力：
+
+- CSV draft
+- 自然语言 draft
+- 风险提示
+- 强制人工审批前置
 
 ## 7. 当前核心状态机
 
@@ -307,55 +318,23 @@ EventSink
 
 `PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
 
-规则：
-
-- 仅 `Approved` 可进入 `Submitted`
-- `Confirmed` 为终态
-- `Failed` 可在满足条件时进入 `retry`
-- `PendingApproval` 与 `Approved` 可取消
-
 ### 7.2 目标扩展方向
-
-目标上仍保留：
 
 `Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
 
-但当前阶段不立即启用链上 `Draft`，以避免在主链路尚未稳定前扩大状态机复杂度。
+当前仍不立即启用链上 `Draft`，以避免在主链路尚未稳定前扩大状态机复杂度。
 
 ## 8. 架构冻结点
 
-在当前阶段应先冻结以下内容：
+当前应冻结：
 
 1. 当前链上真实领域模型与状态机
 2. 链上错误码与测试边界
-3. Control Plane 的最小职责边界
+3. Control Plane / Relayer / Indexer / Dashboard / Agent Adapter 的最小职责边界
 4. 本地凭据与测试环境约定
 5. 大阶段提交、审查和验证门禁
 
-冻结后规则：
-
-- 核心模块仅允许兼容性增强，不做随意重构
-- 新增需求默认进入后续阶段，除非影响主链路正确性
-- 任何扩大状态机或目录结构的设计，都应以真实复用需求为前提
-
 ## 9. 推荐仓库结构
-
-当前：
-
-```text
-policypay/
-  README.md
-  docs/
-    architecture.md
-    delivery-plan.md
-  programs/
-    policy_pay/
-  migrations/
-  tests/
-  app/
-```
-
-阶段性目标：
 
 ```text
 policypay/
@@ -371,6 +350,5 @@ policypay/
     indexer/
   app/
   modules/
-    agent-adapter/      # 当离链 Draft 真正成型后再抽离
-    domain/             # 当多个模块共享类型后再抽离
+    agent-adapter/
 ```

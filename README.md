@@ -27,10 +27,9 @@ PolicyPay 是一个面向团队、企业和 AI Agent 的稳定币支付操作层
 
 - `IntentStatus` 中虽然有 `Draft`，但链上尚未落地 Draft 流程
 - 批量 intent 尚未实现
-- Control Plane / Relayer / Indexer / Dashboard / Agent Adapter 仍基本未实现
-- `app/` 目前为空
+- Dashboard 仍是 MVP，还未接成完整交互式创建/审批/重试工作台
+- Relayer / Indexer 当前仍先用本地 JSON 存储验证闭环
 - `migrations/deploy.ts` 仍是默认 Anchor 占位脚本
-- 链上测试还需要补齐权限边界、非法状态迁移、长度边界、retry 上限和错误码断言
 
 ## 文档导航
 
@@ -60,6 +59,8 @@ services/
   control-plane/      # 当前阶段新增的最小控制面
   relayer/            # 当前阶段新增的最小执行服务
   indexer/            # 当前阶段新增的最小时间线索引服务
+modules/
+  agent-adapter/      # 当前阶段新增的最小 draft 适配层
 ```
 
 ## 推荐实施顺序
@@ -103,6 +104,11 @@ yarn install
 solana-keygen new --no-bip39-passphrase -s -o ./wallets/localnet.json
 anchor build
 yarn run test:anchor:local
+yarn run test:control-plane
+yarn run test:relayer
+yarn run test:indexer
+yarn run test:dashboard
+yarn run test:agent-adapter
 ```
 
 说明：
@@ -112,7 +118,7 @@ yarn run test:anchor:local
 
 ## 近期目标
 
-1. 在现有 `policy_pay` 基础上补齐链上测试与正确性边界
-2. 建立最小 Control Plane，统一链上查询、编排与审计
-3. 打通 `创建 -> 审批 -> 执行 -> 回写 -> 重试` 的完整可演示闭环
+1. 在现有 `policy_pay` 基础上继续补齐 batch intent 和更完整审计字段
+2. 把 Dashboard 从页面入口升级为真实交互式工作台
+3. 把 Relayer / Indexer 从本地 JSON 存储升级为更正式的持久化闭环
 4. 在最终阶段补齐 README、docs、示例与 demo 视频
