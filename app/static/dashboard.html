@@ -196,71 +196,81 @@
   <body>
     <main class="layout">
       <section class="hero">
-        <h1>PolicyPay Dashboard</h1>
+        <h1>PolicyPay 支付工作台</h1>
         <p class="subtitle">
-          单笔、兼容批量与链上 BatchIntent 的可交互工作台，聚合 Control Plane、Relayer 与 Indexer。
+          面向业务人员的付款申请与审批控制台，支持单笔、批量、链上 Batch 全流程。
         </p>
         <div class="meta">
-          <span class="pill">Single + Batch Intent</span>
-          <span class="pill">Approval + Retry</span>
-          <span class="pill">Audit / Execution / Timeline</span>
+          <span class="pill">付款单创建</span>
+          <span class="pill">审批与重试</span>
+          <span class="pill">审计 / 执行 / 时间线</span>
+        </div>
+        <div class="row" style="margin-top: 12px">
+          <label
+            >接口密钥（可选）
+            <input
+              id="api-key"
+              placeholder="未启用认证可留空；启用后填写 x-api-key"
+            />
+          </label>
         </div>
       </section>
 
       <section class="grid two">
         <article class="card">
-          <h2>创建单笔 Intent</h2>
+          <h2>创建单笔付款单</h2>
           <form id="single-form">
             <label
-              >Policy
-              <input id="single-policy" required placeholder="policy-pda" />
+              >支付规则编号（Policy 地址）
+              <input id="single-policy" required placeholder="示例：policy-pda" />
             </label>
             <div class="row">
               <label
-                >Intent ID
+                >付款单号（Intent ID）
                 <input id="single-intent-id" required type="number" min="0" placeholder="101" />
               </label>
               <label
-                >Amount
+                >付款金额（最小单位）
                 <input id="single-amount" required type="number" min="1" placeholder="100" />
               </label>
             </div>
             <label
-              >Recipient
+              >收款地址（钱包公钥）
               <input id="single-recipient" required placeholder="recipient pubkey" />
             </label>
             <label
-              >Memo
+              >付款备注（Memo）
               <input id="single-memo" placeholder="invoice-101" />
             </label>
             <label
-              >Reference
+              >业务流水号（Reference）
               <input id="single-reference" placeholder="ref-101" />
             </label>
-            <button type="submit">创建 Intent</button>
+            <button type="submit">创建付款单</button>
           </form>
           <div id="single-status" class="status">等待提交</div>
         </article>
 
         <article class="card">
-          <h2>兼容批量创建 Intent</h2>
+          <h2>批量创建付款单（兼容模式）</h2>
           <form id="batch-form">
             <label
-              >Policy
-              <input id="batch-policy" required placeholder="policy-pda" />
+              >支付规则编号（Policy 地址）
+              <input id="batch-policy" required placeholder="示例：policy-pda" />
             </label>
             <label
-              >Mode
+              >批量模式
               <select id="batch-mode">
-                <option value="abort-on-error">abort-on-error</option>
-                <option value="continue-on-error">continue-on-error</option>
+                <option value="abort-on-error">遇错即停（abort-on-error）</option>
+                <option value="continue-on-error">继续处理（continue-on-error）</option>
               </select>
             </label>
             <label
-              >Items (JSON Array)
-              <textarea id="batch-items" required>[{"intentId":201,"recipient":"recipient-a","amount":100,"memo":"invoice-201","reference":"ref-201"}]</textarea>
+              >批量明细（每行一条，格式：付款单号,收款地址,金额,备注,业务流水号）
+              <textarea id="batch-items" required>201,recipient-a,100,invoice-201,ref-201
+202,recipient-b,250,invoice-202,ref-202</textarea>
             </label>
-            <button type="submit">批量创建</button>
+            <button type="submit">批量创建付款单</button>
           </form>
           <div id="batch-status" class="status">等待提交</div>
         </article>
@@ -271,18 +281,18 @@
           <h2>批量审批（兼容模式）</h2>
           <form id="approve-form">
             <label
-              >Policy
-              <input id="approve-policy" required placeholder="policy-pda" />
+              >支付规则编号（Policy 地址）
+              <input id="approve-policy" required placeholder="示例：policy-pda" />
             </label>
             <label
-              >Intent IDs (逗号分隔)
+              >付款单号列表（逗号分隔）
               <input id="approve-ids" required placeholder="201,202,203" />
             </label>
             <label
-              >Mode
+              >审批模式
               <select id="approve-mode">
-                <option value="abort-on-error">abort-on-error</option>
-                <option value="continue-on-error">continue-on-error</option>
+                <option value="abort-on-error">遇错即停（abort-on-error）</option>
+                <option value="continue-on-error">继续处理（continue-on-error）</option>
               </select>
             </label>
             <button type="submit">批量审批</button>
@@ -304,66 +314,66 @@
 
       <section class="grid two">
         <article class="card">
-          <h2>链上 BatchIntent 全流程</h2>
+          <h2>链上批处理（BatchIntent）全流程</h2>
           <label
-            >Policy
-            <input id="onchain-policy" placeholder="policy-pda" required />
+            >支付规则编号（Policy 地址）
+            <input id="onchain-policy" placeholder="示例：policy-pda" required />
           </label>
           <div class="row">
             <label
-              >Batch ID
+              >批次编号（Batch ID）
               <input id="onchain-batch-id" type="number" min="0" placeholder="5001" required />
             </label>
             <label
-              >Mode
+              >批次模式
               <select id="onchain-mode">
-                <option value="abort-on-error">abort-on-error</option>
-                <option value="continue-on-error">continue-on-error</option>
+                <option value="abort-on-error">遇错即停（abort-on-error）</option>
+                <option value="continue-on-error">继续处理（continue-on-error）</option>
               </select>
             </label>
           </div>
 
-          <h3>1) 创建 Batch</h3>
-          <button type="button" id="onchain-create-batch">创建链上 Batch</button>
+          <h3>1) 创建批次</h3>
+          <button type="button" id="onchain-create-batch">创建链上批次</button>
 
-          <h3>2) 添加 Batch Item</h3>
+          <h3>2) 添加批次明细</h3>
           <div class="row">
             <label
-              >Intent ID
+              >付款单号（Intent ID）
               <input id="onchain-intent-id" type="number" min="0" placeholder="50011" />
             </label>
             <label
-              >Amount
+              >付款金额
               <input id="onchain-amount" type="number" min="1" placeholder="100" />
             </label>
           </div>
           <label
-            >Recipient
+            >收款地址
             <input id="onchain-recipient" placeholder="recipient pubkey" />
           </label>
           <label
-            >Memo
+            >付款备注（Memo）
             <input id="onchain-memo" placeholder="invoice-50011" />
           </label>
           <label
-            >Reference
+            >业务流水号（Reference）
             <input id="onchain-reference" placeholder="ref-50011" />
           </label>
-          <button type="button" id="onchain-add-item">添加 Item</button>
+          <button type="button" id="onchain-add-item">添加明细</button>
 
           <h3>3) 提交审批 / 审批 / 取消 / 查询</h3>
           <div class="row">
             <button type="button" id="onchain-submit-batch">提交审批</button>
-            <button type="button" id="onchain-approve-batch">审批 Batch</button>
-            <button type="button" id="onchain-cancel-batch">取消 Batch</button>
-            <button type="button" class="ghost" id="onchain-fetch-batch">查询 Batch</button>
+            <button type="button" id="onchain-approve-batch">审批批次</button>
+            <button type="button" id="onchain-cancel-batch">取消批次</button>
+            <button type="button" class="ghost" id="onchain-fetch-batch">查询批次</button>
           </div>
 
           <div id="onchain-status" class="status">等待操作</div>
         </article>
 
         <article class="card">
-          <h2>Batch 查询结果</h2>
+          <h2>批次查询结果</h2>
           <div class="pane">
             <pre id="onchain-batch-pane">{}</pre>
           </div>
@@ -372,15 +382,15 @@
 
       <section class="grid three">
         <article class="card">
-          <h2>Audit Logs</h2>
+          <h2>审计日志</h2>
           <div class="pane"><pre id="audit-pane">[]</pre></div>
         </article>
         <article class="card">
-          <h2>Executions</h2>
+          <h2>执行记录</h2>
           <div class="pane"><pre id="execution-pane">[]</pre></div>
         </article>
         <article class="card">
-          <h2>Timeline</h2>
+          <h2>状态时间线</h2>
           <div class="pane"><pre id="timeline-pane">[]</pre></div>
         </article>
       </section>
@@ -397,8 +407,20 @@
 
       const asPrettyJson = (value) => JSON.stringify(value, null, 2);
 
+      const buildHeaders = (baseHeaders = {}) => {
+        const headers = { ...baseHeaders };
+        const apiKey = byId("api-key").value.trim();
+        if (apiKey) {
+          headers["x-api-key"] = apiKey;
+        }
+        return headers;
+      };
+
       const requestJson = async (url, options) => {
-        const response = await fetch(url, options);
+        const requestOptions = options ? { ...options } : {};
+        requestOptions.headers = buildHeaders(requestOptions.headers || {});
+
+        const response = await fetch(url, requestOptions);
         let body;
 
         try {
@@ -412,6 +434,50 @@
         }
 
         return body;
+      };
+
+      const parseBatchItems = (text) => {
+        const lines = text
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+
+        if (lines.length === 0) {
+          throw new Error("请至少填写一行批量明细");
+        }
+
+        return lines.map((line, index) => {
+          const parts = line.split(",").map((part) => part.trim());
+          if (parts.length < 5) {
+            throw new Error(
+              `第 ${index + 1} 行格式错误，应为：付款单号,收款地址,金额,备注,业务流水号`
+            );
+          }
+
+          const [intentIdRaw, recipient, amountRaw, memo, reference] = parts;
+          const intentId = Number(intentIdRaw);
+          const amount = Number(amountRaw);
+
+          if (!Number.isSafeInteger(intentId) || intentId < 0) {
+            throw new Error(`第 ${index + 1} 行付款单号必须是非负整数`);
+          }
+
+          if (!recipient) {
+            throw new Error(`第 ${index + 1} 行收款地址不能为空`);
+          }
+
+          if (!Number.isSafeInteger(amount) || amount <= 0) {
+            throw new Error(`第 ${index + 1} 行金额必须是正整数`);
+          }
+
+          return {
+            intentId,
+            recipient,
+            amount,
+            memo: memo || "",
+            reference: reference || "",
+          };
+        });
       };
 
       const refreshPanels = async () => {
@@ -451,7 +517,7 @@
 
           setStatus(
             "single-status",
-            "创建成功: " + asPrettyJson(response),
+            "创建付款单成功: " + asPrettyJson(response),
             "ok"
           );
           await refreshPanels();
@@ -464,7 +530,7 @@
         event.preventDefault();
 
         try {
-          const items = JSON.parse(byId("batch-items").value);
+          const items = parseBatchItems(byId("batch-items").value);
           const payload = {
             policy: byId("batch-policy").value,
             mode: byId("batch-mode").value,
@@ -479,7 +545,7 @@
 
           setStatus(
             "batch-status",
-            "批量创建完成: " + asPrettyJson(response.summary),
+            "批量创建完成: " + asPrettyJson(response.summary || response),
             "ok"
           );
           await refreshPanels();
@@ -511,7 +577,7 @@
 
           setStatus(
             "approve-status",
-            "批量审批完成: " + asPrettyJson(response.summary),
+            "批量审批完成: " + asPrettyJson(response.summary || response),
             "ok"
           );
           await refreshPanels();
@@ -540,7 +606,7 @@
 
           setStatus(
             "onchain-status",
-            "链上 Batch 创建成功: " + asPrettyJson(response),
+            "链上批次创建成功: " + asPrettyJson(response),
             "ok"
           );
           await refreshPanels();
@@ -567,7 +633,7 @@
 
           setStatus(
             "onchain-status",
-            "链上 Batch 添加 Item 成功: " + asPrettyJson(response),
+            "链上批次添加明细成功: " + asPrettyJson(response),
             "ok"
           );
           await refreshPanels();
@@ -587,7 +653,7 @@
 
           setStatus(
             "onchain-status",
-            "链上 Batch 提交审批成功: " + asPrettyJson(response),
+            "链上批次提交审批成功: " + asPrettyJson(response),
             "ok"
           );
           await refreshPanels();
@@ -607,7 +673,7 @@
 
           setStatus(
             "onchain-status",
-            "链上 Batch 审批成功: " + asPrettyJson(response),
+            "链上批次审批成功: " + asPrettyJson(response),
             "ok"
           );
           await refreshPanels();
@@ -627,7 +693,7 @@
 
           setStatus(
             "onchain-status",
-            "链上 Batch 取消成功: " + asPrettyJson(response),
+            "链上批次取消成功: " + asPrettyJson(response),
             "ok"
           );
           await refreshPanels();
@@ -644,7 +710,7 @@
           );
 
           byId("onchain-batch-pane").textContent = asPrettyJson(response);
-          setStatus("onchain-status", "Batch 查询成功", "ok");
+          setStatus("onchain-status", "批次查询成功", "ok");
         } catch (error) {
           setStatus("onchain-status", String(error), "err");
         }
