@@ -160,11 +160,13 @@ Dashboard 内部代理接口：
 ## 10. 测试建议顺序
 
 ```bash
+yarn run test:anchor:safe
 yarn run test:control-plane
 yarn run test:relayer
 yarn run test:indexer
 yarn run test:dashboard
 yarn run test:agent-adapter
+yarn run test:e2e:offchain
 
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
@@ -172,4 +174,4 @@ cargo test
 anchor build
 ```
 
-如果 `anchor test` 因本地 RPC 端口被占用或 validator 状态问题失败，优先使用独立 validator 端口进行 `anchor deploy` + `test:anchor:ts`。
+如果需要排查 `anchor test` 启动竞态和端口冲突问题，请参考：`docs/guides/anchor-test-stability.md`。

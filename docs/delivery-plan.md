@@ -37,7 +37,7 @@
 
 - batch intent 链上账户模型未实现（当前已实现 control-plane 编排批量）
 - `Draft` 尚未作为链上可达流程落地
-- 仍需补齐跨服务端到端回归测试（并发与失败恢复场景）
+- 仍需继续扩展并发压力与失败恢复场景的端到端回归覆盖
 - 最终 demo 视频仍需录制
 
 ## 2. 实施原则
@@ -183,7 +183,7 @@
 - `cargo clippy`
 - `anchor build`
 - `cargo test`
-- `anchor test`
+- `yarn run test:anchor:safe`（稳定链路）
 - 当前阶段新增模块的对应测试
 
 ### 每个大阶段 push 前必须经过 codex 审查

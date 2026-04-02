@@ -50,6 +50,7 @@ PolicyPay 是一个面向团队、企业和 AI Agent 的稳定币支付操作层
 - `docs/delivery-plan.md`：分阶段实施顺序、质量门禁、验收与交付要求
 - `docs/guides/quickstart.md`：快速启动指南
 - `docs/guides/usage.md`：详细接口与环境配置说明
+- `docs/guides/anchor-test-stability.md`：Anchor 测试稳定执行方案
 - `examples/README.md`：接口调用与 draft 输入示例
 - `demo/DEMO_SCRIPT.md`：演示脚本与讲解顺序
 - `demo/VIDEO_GUIDE.md`：视频录制与交付建议
@@ -71,6 +72,7 @@ anchor build
 
 # 可选：链上 TS 测试
 yarn run test:anchor:ts
+yarn run test:anchor:safe
 
 # 离链服务测试
 yarn run test:control-plane
@@ -78,6 +80,7 @@ yarn run test:relayer
 yarn run test:indexer
 yarn run test:dashboard
 yarn run test:agent-adapter
+yarn run test:e2e:offchain
 ```
 
 说明：
@@ -120,6 +123,7 @@ export POLICYPAY_STORAGE_DRIVER=json
 - API 示例：`examples/README.md`
 - 演示顺序：`demo/DEMO_SCRIPT.md`
 - 一键演示脚本：`demo/live_demo.sh`
+- Anchor 稳定测试：`docs/guides/anchor-test-stability.md`
 
 ## 下一步优先事项
 

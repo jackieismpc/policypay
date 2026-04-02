@@ -48,11 +48,13 @@ solana airdrop 20 "$(solana address -k ./wallets/localnet.json)" --url http://12
 
 ```bash
 yarn run test:anchor:ts
+yarn run test:anchor:safe
 yarn run test:control-plane
 yarn run test:relayer
 yarn run test:indexer
 yarn run test:dashboard
 yarn run test:agent-adapter
+yarn run test:e2e:offchain
 
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
@@ -62,8 +64,9 @@ anchor build
 
 说明：
 
-- `anchor test` 在部分环境中可能因本地 8899 端口占用或 validator 状态检查失败。
-- 可使用独立端口 validator 执行 `anchor deploy` + `yarn run test:anchor:ts` 作为等价链上测试链路。
+- `anchor test` 在部分环境中存在 validator 启动探测竞态，可能偶发失败。
+- 推荐优先使用 `yarn run test:anchor:safe`（独立端口 + 启动健康探测 + deploy + test）。
+- 详细分析见：`docs/guides/anchor-test-stability.md`。
 
 ## 6. 启动各服务
 
