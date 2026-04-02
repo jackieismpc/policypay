@@ -6,14 +6,17 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-policy_pay = "Hb5rCLerZEYj1HReMnw1utKCpVEEemDPbed2cmDStbRw"
+policy_pay = "2uJf3sxUpHXS7QR2thzUWmjnznhcDvnE7H87eDBJLUps"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "localnet"
-wallet = "~/.config/solana/id.json"
+wallet = "./wallets/localnet.json"
+
+[test]
+startup_wait = 10000
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
+test = "yarn run test:anchor:local"

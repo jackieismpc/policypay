@@ -8,7 +8,7 @@ use constants::{MAX_FAILURE_REASON_LEN, MAX_MEMO_LEN, MAX_REFERENCE_LEN, MAX_SIG
 use errors::PolicyPayError;
 use state::{IntentStatus, PaymentIntent, PolicyAccount};
 
-declare_id!("Hb5rCLerZEYj1HReMnw1utKCpVEEemDPbed2cmDStbRw");
+declare_id!("2uJf3sxUpHXS7QR2thzUWmjnznhcDvnE7H87eDBJLUps");
 
 #[program]
 pub mod policy_pay {

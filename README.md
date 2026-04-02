@@ -96,9 +96,15 @@ app/                  # 预留前端目录（当前为空）
 
 ```bash
 yarn install
+solana-keygen new --no-bip39-passphrase -s -o ./wallets/localnet.json
 anchor build
-anchor test
+yarn run test:anchor:local
 ```
+
+说明：
+
+- `wallets/localnet.json` 仅用于本地开发和测试，不会被提交到远端。
+- 运行本地 Anchor 测试前，请先启动本地 validator，或在已有本地集群上执行 `solana airdrop` 给测试钱包注资。
 
 ## 近期目标
 
