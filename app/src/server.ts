@@ -640,6 +640,28 @@ app.post("/api/intents", async (req, res) => {
   });
 });
 
+app.post("/api/intents/draft", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
+  await respondProxy(res, `${controlPlaneBaseUrl}/intents/draft`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req.body ?? {}),
+  });
+});
+
+app.post("/api/intents/:intentId(\\d+)/submit", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
+  await respondProxy(
+    res,
+    `${controlPlaneBaseUrl}/intents/${req.params.intentId}/submit`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body ?? {}),
+    }
+  );
+});
+
 app.post("/api/intents/batch", async (req, res) => {
   const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
   await respondProxy(res, `${controlPlaneBaseUrl}/intents/batch`, {
@@ -656,6 +678,75 @@ app.post("/api/intents/batch/approve", async (req, res) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req.body ?? {}),
   });
+});
+
+app.get("/api/policies/:policy/batches/:batchId", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
+  await respondProxy(
+    res,
+    `${controlPlaneBaseUrl}/policies/${req.params.policy}/batches/${req.params.batchId}`
+  );
+});
+
+app.post("/api/batches", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
+  await respondProxy(res, `${controlPlaneBaseUrl}/batches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req.body ?? {}),
+  });
+});
+
+app.post("/api/batches/:batchId(\\d+)/items", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
+  await respondProxy(
+    res,
+    `${controlPlaneBaseUrl}/batches/${req.params.batchId}/items`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body ?? {}),
+    }
+  );
+});
+
+app.post("/api/batches/:batchId(\\d+)/submit", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
+  await respondProxy(
+    res,
+    `${controlPlaneBaseUrl}/batches/${req.params.batchId}/submit`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body ?? {}),
+    }
+  );
+});
+
+app.post("/api/batches/:batchId(\\d+)/approve", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
+  await respondProxy(
+    res,
+    `${controlPlaneBaseUrl}/batches/${req.params.batchId}/approve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body ?? {}),
+    }
+  );
+});
+
+app.post("/api/batches/:batchId(\\d+)/cancel", async (req, res) => {
+  const { controlPlaneBaseUrl } = resolveServiceBaseUrls(req);
+  await respondProxy(
+    res,
+    `${controlPlaneBaseUrl}/batches/${req.params.batchId}/cancel`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body ?? {}),
+    }
+  );
 });
 
 app.listen(port, () => {

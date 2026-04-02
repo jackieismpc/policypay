@@ -27,10 +27,24 @@ const createMockClient = (options?: {
 
   const createdIntentIds: number[] = [];
   const approvedIntentIds: number[] = [];
+  const createdDraftIntentIds: number[] = [];
+  const submittedDraftIntentIds: number[] = [];
+  const createdBatchIds: number[] = [];
+  const addedBatchItemIntentIds: number[] = [];
+  const submittedBatchIds: number[] = [];
+  const approvedBatchIds: number[] = [];
+  const canceledBatchIds: number[] = [];
 
   return {
     createdIntentIds,
     approvedIntentIds,
+    createdDraftIntentIds,
+    submittedDraftIntentIds,
+    createdBatchIds,
+    addedBatchItemIntentIds,
+    submittedBatchIds,
+    approvedBatchIds,
+    canceledBatchIds,
     client: {
       program: {
         programId: {
@@ -42,6 +56,9 @@ const createMockClient = (options?: {
       },
       async fetchIntent(policy: string, intentId: number | string) {
         return { policy, intentId };
+      },
+      async fetchBatch(policy: string, batchId: number | string) {
+        return { policy, batchId };
       },
       async createIntent(input: {
         intentId: number;
@@ -58,6 +75,27 @@ const createMockClient = (options?: {
         createdIntentIds.push(input.intentId);
         return {
           signature: `sig-create-${input.intentId}`,
+          paymentIntent: `intent-${input.intentId}`,
+        };
+      },
+      async createDraftIntent(input: {
+        intentId: number;
+        policy: string;
+        recipient: string;
+        amount: number;
+        memo: string;
+        reference: string;
+      }) {
+        createdDraftIntentIds.push(input.intentId);
+        return {
+          signature: `sig-create-draft-${input.intentId}`,
+          paymentIntent: `intent-${input.intentId}`,
+        };
+      },
+      async submitDraftIntent(input: { intentId: number; policy: string }) {
+        submittedDraftIntentIds.push(input.intentId);
+        return {
+          signature: `sig-submit-draft-${input.intentId}`,
           paymentIntent: `intent-${input.intentId}`,
         };
       },
@@ -86,6 +124,57 @@ const createMockClient = (options?: {
         return {
           signature: `sig-retry-${input.intentId}`,
           paymentIntent: `intent-${input.intentId}`,
+        };
+      },
+      async createBatchIntent(input: {
+        policy: string;
+        batchId: number;
+        mode?: "abort-on-error" | "continue-on-error";
+      }) {
+        createdBatchIds.push(input.batchId);
+        return {
+          signature: `sig-create-batch-${input.batchId}`,
+          batchIntent: `batch-${input.batchId}`,
+        };
+      },
+      async addBatchItem(input: {
+        policy: string;
+        batchId: number;
+        intentId: number;
+        recipient: string;
+        amount: number;
+        memo: string;
+        reference: string;
+      }) {
+        addedBatchItemIntentIds.push(input.intentId);
+        return {
+          signature: `sig-add-batch-item-${input.intentId}`,
+          batchIntent: `batch-${input.batchId}`,
+        };
+      },
+      async submitBatchForApproval(input: { policy: string; batchId: number }) {
+        submittedBatchIds.push(input.batchId);
+        return {
+          signature: `sig-submit-batch-${input.batchId}`,
+          batchIntent: `batch-${input.batchId}`,
+        };
+      },
+      async approveBatchIntent(input: {
+        policy: string;
+        batchId: number;
+        approvalDigest: number[];
+      }) {
+        approvedBatchIds.push(input.batchId);
+        return {
+          signature: `sig-approve-batch-${input.batchId}`,
+          batchIntent: `batch-${input.batchId}`,
+        };
+      },
+      async cancelBatchIntent(input: { policy: string; batchId: number }) {
+        canceledBatchIds.push(input.batchId);
+        return {
+          signature: `sig-cancel-batch-${input.batchId}`,
+          batchIntent: `batch-${input.batchId}`,
         };
       },
     },
@@ -256,6 +345,131 @@ test("batch approve endpoint continues on error in continue mode", async () => {
       json.results.map((item) => item.intentId),
       [21, 22, 23]
     );
+  });
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test("draft intent endpoints create and submit draft onchain", async () => {
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "policy-pay-draft-onchain-")
+  );
+  const auditLogPath = path.join(tempDir, "audit-log.json");
+  const { client, createdDraftIntentIds, submittedDraftIntentIds } =
+    createMockClient();
+
+  const app = createApp(createTestConfig(auditLogPath), {
+    client: client as any,
+    auditLogStore: new AuditLogStore(auditLogPath),
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const createResponse = await fetch(`${baseUrl}/intents/draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        policy: "policy-1",
+        intentId: 31,
+        recipient: "recipient-31",
+        amount: 100,
+        memo: "invoice-31",
+        reference: "ref-31",
+      }),
+    });
+    assert.equal(createResponse.status, 201);
+    assert.deepEqual(createdDraftIntentIds, [31]);
+
+    const submitResponse = await fetch(`${baseUrl}/intents/31/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        policy: "policy-1",
+      }),
+    });
+    assert.equal(submitResponse.status, 200);
+    assert.deepEqual(submittedDraftIntentIds, [31]);
+  });
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test("onchain batch endpoints drive batch lifecycle", async () => {
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "policy-pay-batch-onchain-")
+  );
+  const auditLogPath = path.join(tempDir, "audit-log.json");
+  const {
+    client,
+    createdBatchIds,
+    addedBatchItemIntentIds,
+    submittedBatchIds,
+    approvedBatchIds,
+    canceledBatchIds,
+  } = createMockClient();
+
+  const app = createApp(createTestConfig(auditLogPath), {
+    client: client as any,
+    auditLogStore: new AuditLogStore(auditLogPath),
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const createBatchResponse = await fetch(`${baseUrl}/batches`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        policy: "policy-1",
+        batchId: 55,
+        mode: "continue-on-error",
+      }),
+    });
+    assert.equal(createBatchResponse.status, 201);
+    assert.deepEqual(createdBatchIds, [55]);
+
+    const addItemResponse = await fetch(`${baseUrl}/batches/55/items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        policy: "policy-1",
+        intentId: 5501,
+        recipient: "recipient-5501",
+        amount: 120,
+        memo: "invoice-5501",
+        reference: "ref-5501",
+      }),
+    });
+    assert.equal(addItemResponse.status, 201);
+    assert.deepEqual(addedBatchItemIntentIds, [5501]);
+
+    const submitBatchResponse = await fetch(`${baseUrl}/batches/55/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        policy: "policy-1",
+      }),
+    });
+    assert.equal(submitBatchResponse.status, 200);
+    assert.deepEqual(submittedBatchIds, [55]);
+
+    const approveBatchResponse = await fetch(`${baseUrl}/batches/55/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        policy: "policy-1",
+        approvalDigest: Array(32).fill(1),
+      }),
+    });
+    assert.equal(approveBatchResponse.status, 200);
+    assert.deepEqual(approvedBatchIds, [55]);
+
+    const cancelBatchResponse = await fetch(`${baseUrl}/batches/55/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        policy: "policy-1",
+      }),
+    });
+    assert.equal(cancelBatchResponse.status, 200);
+    assert.deepEqual(canceledBatchIds, [55]);
   });
 
   fs.rmSync(tempDir, { recursive: true, force: true });

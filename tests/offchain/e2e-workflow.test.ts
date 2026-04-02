@@ -105,6 +105,7 @@ const postJson = async (url: string, payload: unknown) => {
 
 const createMockControlPlaneClient = () => {
   const intents = new Map<number, Record<string, unknown>>();
+  const batches = new Map<number, Record<string, unknown>>();
 
   return {
     program: {
@@ -130,6 +131,18 @@ const createMockControlPlaneClient = () => {
 
       return item;
     },
+    async fetchBatch(policy: string, batchId: string | number) {
+      const numericBatchId = Number(batchId);
+      const item = batches.get(numericBatchId);
+
+      if (!item) {
+        throw new Error(
+          `batch ${numericBatchId} not found for policy ${policy}`
+        );
+      }
+
+      return item;
+    },
     async createIntent(input: {
       policy: string;
       intentId: number;
@@ -149,6 +162,42 @@ const createMockControlPlaneClient = () => {
       return {
         signature,
         paymentIntent,
+      };
+    },
+    async createDraftIntent(input: {
+      policy: string;
+      intentId: number;
+      recipient: string;
+      amount: number;
+      memo: string;
+      reference: string;
+    }) {
+      const paymentIntent = `intent-${input.intentId}`;
+      intents.set(input.intentId, {
+        ...input,
+        paymentIntent,
+        status: "draft",
+      });
+
+      return {
+        signature: `sig-create-draft-${input.intentId}`,
+        paymentIntent,
+      };
+    },
+    async submitDraftIntent(input: { policy: string; intentId: number }) {
+      const current = intents.get(input.intentId);
+      if (!current) {
+        throw new Error(`intent ${input.intentId} not found`);
+      }
+
+      intents.set(input.intentId, {
+        ...current,
+        status: "pending_approval",
+      });
+
+      return {
+        signature: `sig-submit-draft-${input.intentId}`,
+        paymentIntent: `intent-${input.intentId}`,
       };
     },
     async approveIntent(input: {
@@ -202,6 +251,110 @@ const createMockControlPlaneClient = () => {
       return {
         signature: `sig-retry-${input.intentId}`,
         paymentIntent: `intent-${input.intentId}`,
+      };
+    },
+    async createBatchIntent(input: {
+      policy: string;
+      batchId: number;
+      mode?: "abort-on-error" | "continue-on-error";
+    }) {
+      batches.set(input.batchId, {
+        policy: input.policy,
+        batchId: input.batchId,
+        mode: input.mode ?? "abort-on-error",
+        status: "draft",
+        items: [],
+      });
+
+      return {
+        signature: `sig-create-batch-${input.batchId}`,
+        batchIntent: `batch-${input.batchId}`,
+      };
+    },
+    async addBatchItem(input: {
+      policy: string;
+      batchId: number;
+      intentId: number;
+      recipient: string;
+      amount: number;
+      memo: string;
+      reference: string;
+    }) {
+      const current = batches.get(input.batchId);
+      if (!current) {
+        throw new Error(`batch ${input.batchId} not found`);
+      }
+
+      const items = Array.isArray(current.items) ? [...current.items] : [];
+      items.push({
+        intentId: input.intentId,
+        recipient: input.recipient,
+        amount: input.amount,
+        memo: input.memo,
+        reference: input.reference,
+      });
+
+      batches.set(input.batchId, {
+        ...current,
+        items,
+      });
+
+      return {
+        signature: `sig-add-batch-item-${input.intentId}`,
+        batchIntent: `batch-${input.batchId}`,
+      };
+    },
+    async submitBatchForApproval(input: { policy: string; batchId: number }) {
+      const current = batches.get(input.batchId);
+      if (!current) {
+        throw new Error(`batch ${input.batchId} not found`);
+      }
+
+      batches.set(input.batchId, {
+        ...current,
+        status: "pending_approval",
+      });
+
+      return {
+        signature: `sig-submit-batch-${input.batchId}`,
+        batchIntent: `batch-${input.batchId}`,
+      };
+    },
+    async approveBatchIntent(input: {
+      policy: string;
+      batchId: number;
+      approvalDigest: number[];
+    }) {
+      const current = batches.get(input.batchId);
+      if (!current) {
+        throw new Error(`batch ${input.batchId} not found`);
+      }
+
+      batches.set(input.batchId, {
+        ...current,
+        status: "approved",
+        approvalDigest: input.approvalDigest,
+      });
+
+      return {
+        signature: `sig-approve-batch-${input.batchId}`,
+        batchIntent: `batch-${input.batchId}`,
+      };
+    },
+    async cancelBatchIntent(input: { policy: string; batchId: number }) {
+      const current = batches.get(input.batchId);
+      if (!current) {
+        throw new Error(`batch ${input.batchId} not found`);
+      }
+
+      batches.set(input.batchId, {
+        ...current,
+        status: "cancelled",
+      });
+
+      return {
+        signature: `sig-cancel-batch-${input.batchId}`,
+        batchIntent: `batch-${input.batchId}`,
       };
     },
   };

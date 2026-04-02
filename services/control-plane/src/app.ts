@@ -31,6 +31,38 @@ type RetryIntentInput = {
   intentId: number;
 };
 
+type SubmitDraftIntentInput = {
+  policy: string;
+  intentId: number;
+};
+
+type CreateBatchIntentInput = {
+  policy: string;
+  batchId: number;
+  mode: BatchMode;
+};
+
+type AddBatchItemInput = {
+  policy: string;
+  batchId: number;
+  intentId: number;
+  recipient: string;
+  amount: number;
+  memo: string;
+  reference: string;
+};
+
+type BatchActionInput = {
+  policy: string;
+  batchId: number;
+};
+
+type ApproveBatchIntentInput = {
+  policy: string;
+  batchId: number;
+  approvalDigest: number[];
+};
+
 type BatchMode = "abort-on-error" | "continue-on-error";
 
 type BatchResult = {
@@ -46,10 +78,18 @@ type PolicyPayClientLike = Pick<
   | "program"
   | "fetchPolicy"
   | "fetchIntent"
+  | "fetchBatch"
   | "createIntent"
+  | "createDraftIntent"
+  | "submitDraftIntent"
   | "approveIntent"
   | "cancelIntent"
   | "retryIntent"
+  | "createBatchIntent"
+  | "addBatchItem"
+  | "submitBatchForApproval"
+  | "approveBatchIntent"
+  | "cancelBatchIntent"
 >;
 
 type AppDependencies = {
@@ -195,6 +235,76 @@ const parseRetryInput = (
   };
 };
 
+const parseSubmitDraftInput = (
+  value: unknown,
+  intentIdFromPath: string
+): SubmitDraftIntentInput => {
+  const body = ensureObject(value, "request body must be an object");
+
+  return {
+    policy: ensureString(body, "policy"),
+    intentId: ensureIntentId(intentIdFromPath),
+  };
+};
+
+const parseCreateBatchIntentInput = (
+  value: unknown,
+  batchIdFromPath?: string
+): CreateBatchIntentInput => {
+  const body = ensureObject(value, "request body must be an object");
+
+  return {
+    policy: ensureString(body, "policy"),
+    batchId:
+      batchIdFromPath === undefined
+        ? ensureIntentId(body.batchId, "batchId")
+        : ensureIntentId(batchIdFromPath, "batchId"),
+    mode: parseBatchMode(body.mode),
+  };
+};
+
+const parseAddBatchItemInput = (
+  value: unknown,
+  batchIdFromPath: string
+): AddBatchItemInput => {
+  const body = ensureObject(value, "request body must be an object");
+
+  return {
+    policy: ensureString(body, "policy"),
+    batchId: ensureIntentId(batchIdFromPath, "batchId"),
+    intentId: ensureIntentId(body.intentId),
+    recipient: ensureString(body, "recipient"),
+    amount: ensureAmount(body.amount),
+    memo: ensureString(body, "memo", true),
+    reference: ensureString(body, "reference", true),
+  };
+};
+
+const parseBatchActionInput = (
+  value: unknown,
+  batchIdFromPath: string
+): BatchActionInput => {
+  const body = ensureObject(value, "request body must be an object");
+
+  return {
+    policy: ensureString(body, "policy"),
+    batchId: ensureIntentId(batchIdFromPath, "batchId"),
+  };
+};
+
+const parseApproveBatchIntentInput = (
+  value: unknown,
+  batchIdFromPath: string
+): ApproveBatchIntentInput => {
+  const body = ensureObject(value, "request body must be an object");
+
+  return {
+    policy: ensureString(body, "policy"),
+    batchId: ensureIntentId(batchIdFromPath, "batchId"),
+    approvalDigest: parseApprovalDigest(body.approvalDigest),
+  };
+};
+
 const parseBatchCreateInput = (value: unknown) => {
   const body = ensureObject(value, "request body must be an object");
   const mode = parseBatchMode(body.mode);
@@ -278,10 +388,18 @@ const createUnavailableClient = (reason: string): PolicyPayClientLike => {
     } as PolicyPayClientLike["program"],
     fetchPolicy: throwUnavailable,
     fetchIntent: throwUnavailable,
+    fetchBatch: throwUnavailable,
     createIntent: throwUnavailable,
+    createDraftIntent: throwUnavailable,
+    submitDraftIntent: throwUnavailable,
     approveIntent: throwUnavailable,
     cancelIntent: throwUnavailable,
     retryIntent: throwUnavailable,
+    createBatchIntent: throwUnavailable,
+    addBatchItem: throwUnavailable,
+    submitBatchForApproval: throwUnavailable,
+    approveBatchIntent: throwUnavailable,
+    cancelBatchIntent: throwUnavailable,
   };
 };
 
@@ -345,6 +463,22 @@ export const createApp = (
     }
   });
 
+  app.get("/policies/:policy/batches/:batchId", async (req, res) => {
+    try {
+      const account = await client.fetchBatch(
+        req.params.policy,
+        req.params.batchId
+      );
+      res.json({
+        policy: req.params.policy,
+        batchId: req.params.batchId,
+        account,
+      });
+    } catch (error) {
+      res.status(404).json({ error: String(error) });
+    }
+  });
+
   app.post("/intents", async (req, res) => {
     try {
       const payload = parseCreateIntentInput(req.body);
@@ -360,6 +494,29 @@ export const createApp = (
     } catch (error) {
       auditLogStore.append(
         buildAuditEntry("create_intent", "failed", {
+          payload: req.body ?? null,
+          error: String(error),
+        })
+      );
+      res.status(400).json({ error: String(error) });
+    }
+  });
+
+  app.post("/intents/draft", async (req, res) => {
+    try {
+      const payload = parseCreateIntentInput(req.body);
+      auditLogStore.append(
+        buildAuditEntry("create_draft_intent", "requested", payload)
+      );
+
+      const result = await client.createDraftIntent(payload);
+      auditLogStore.append(
+        buildAuditEntry("create_draft_intent", "succeeded", result)
+      );
+      res.status(201).json(result);
+    } catch (error) {
+      auditLogStore.append(
+        buildAuditEntry("create_draft_intent", "failed", {
           payload: req.body ?? null,
           error: String(error),
         })
@@ -425,6 +582,29 @@ export const createApp = (
     } catch (error) {
       auditLogStore.append(
         buildAuditEntry("batch_create_intents", "failed", {
+          payload: req.body ?? null,
+          error: String(error),
+        })
+      );
+      res.status(400).json({ error: String(error) });
+    }
+  });
+
+  app.post("/intents/:intentId(\\d+)/submit", async (req, res) => {
+    try {
+      const payload = parseSubmitDraftInput(req.body, req.params.intentId);
+      auditLogStore.append(
+        buildAuditEntry("submit_draft_intent", "requested", payload)
+      );
+
+      const result = await client.submitDraftIntent(payload);
+      auditLogStore.append(
+        buildAuditEntry("submit_draft_intent", "succeeded", result)
+      );
+      res.json(result);
+    } catch (error) {
+      auditLogStore.append(
+        buildAuditEntry("submit_draft_intent", "failed", {
           payload: req.body ?? null,
           error: String(error),
         })
@@ -512,6 +692,132 @@ export const createApp = (
     } catch (error) {
       auditLogStore.append(
         buildAuditEntry("batch_approve_intents", "failed", {
+          payload: req.body ?? null,
+          error: String(error),
+        })
+      );
+      res.status(400).json({ error: String(error) });
+    }
+  });
+
+  app.post("/batches", async (req, res) => {
+    try {
+      const payload = parseCreateBatchIntentInput(req.body);
+      auditLogStore.append(
+        buildAuditEntry("create_batch_intent_onchain", "requested", payload)
+      );
+
+      const result = await client.createBatchIntent(payload);
+      auditLogStore.append(
+        buildAuditEntry("create_batch_intent_onchain", "succeeded", result)
+      );
+      res.status(201).json(result);
+    } catch (error) {
+      auditLogStore.append(
+        buildAuditEntry("create_batch_intent_onchain", "failed", {
+          payload: req.body ?? null,
+          error: String(error),
+        })
+      );
+      res.status(400).json({ error: String(error) });
+    }
+  });
+
+  app.post("/batches/:batchId(\\d+)/items", async (req, res) => {
+    try {
+      const payload = parseAddBatchItemInput(req.body, req.params.batchId);
+      auditLogStore.append(
+        buildAuditEntry("add_batch_item_onchain", "requested", payload)
+      );
+
+      const result = await client.addBatchItem(payload);
+      auditLogStore.append(
+        buildAuditEntry("add_batch_item_onchain", "succeeded", result)
+      );
+      res.status(201).json(result);
+    } catch (error) {
+      auditLogStore.append(
+        buildAuditEntry("add_batch_item_onchain", "failed", {
+          payload: req.body ?? null,
+          error: String(error),
+        })
+      );
+      res.status(400).json({ error: String(error) });
+    }
+  });
+
+  app.post("/batches/:batchId(\\d+)/submit", async (req, res) => {
+    try {
+      const payload = parseBatchActionInput(req.body, req.params.batchId);
+      auditLogStore.append(
+        buildAuditEntry(
+          "submit_batch_for_approval_onchain",
+          "requested",
+          payload
+        )
+      );
+
+      const result = await client.submitBatchForApproval(payload);
+      auditLogStore.append(
+        buildAuditEntry(
+          "submit_batch_for_approval_onchain",
+          "succeeded",
+          result
+        )
+      );
+      res.json(result);
+    } catch (error) {
+      auditLogStore.append(
+        buildAuditEntry("submit_batch_for_approval_onchain", "failed", {
+          payload: req.body ?? null,
+          error: String(error),
+        })
+      );
+      res.status(400).json({ error: String(error) });
+    }
+  });
+
+  app.post("/batches/:batchId(\\d+)/approve", async (req, res) => {
+    try {
+      const payload = parseApproveBatchIntentInput(
+        req.body,
+        req.params.batchId
+      );
+      auditLogStore.append(
+        buildAuditEntry("approve_batch_intent_onchain", "requested", payload)
+      );
+
+      const result = await client.approveBatchIntent(payload);
+      auditLogStore.append(
+        buildAuditEntry("approve_batch_intent_onchain", "succeeded", result)
+      );
+      res.json(result);
+    } catch (error) {
+      auditLogStore.append(
+        buildAuditEntry("approve_batch_intent_onchain", "failed", {
+          payload: req.body ?? null,
+          error: String(error),
+        })
+      );
+      res.status(400).json({ error: String(error) });
+    }
+  });
+
+  app.post("/batches/:batchId(\\d+)/cancel", async (req, res) => {
+    try {
+      const payload = parseBatchActionInput(req.body, req.params.batchId);
+      auditLogStore.append(
+        buildAuditEntry("cancel_batch_intent_onchain", "requested", payload)
+      );
+
+      const result = await client.cancelBatchIntent(payload);
+      auditLogStore.append(
+        buildAuditEntry("cancel_batch_intent_onchain", "succeeded", result)
+      );
+      res.json(result);
+    } catch (error) {
+      auditLogStore.append(
+        buildAuditEntry("cancel_batch_intent_onchain", "failed", {
           payload: req.body ?? null,
           error: String(error),
         })
