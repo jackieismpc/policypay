@@ -346,3 +346,36 @@ fn validate_signature(signature: &str) -> Result<()> {
     );
     validate_text(signature, MAX_SIGNATURE_LEN)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn authority_check_requires_exact_match() {
+        let authority = Pubkey::new_unique();
+
+        assert!(ensure_authority(authority, authority).is_ok());
+        assert!(ensure_authority(Pubkey::new_unique(), authority).is_err());
+    }
+
+    #[test]
+    fn text_validation_enforces_max_length() {
+        assert!(validate_text("ok", 4).is_ok());
+        assert!(validate_text("too-long", 3).is_err());
+    }
+
+    #[test]
+    fn non_empty_text_rejects_blank_or_too_long() {
+        assert!(validate_non_empty_text("failure", 16).is_ok());
+        assert!(validate_non_empty_text("   ", 16).is_err());
+        assert!(validate_non_empty_text("x".repeat(20).as_str(), 10).is_err());
+    }
+
+    #[test]
+    fn signature_validation_requires_non_empty_and_bounded_text() {
+        assert!(validate_signature("sig-001").is_ok());
+        assert!(validate_signature(" ").is_err());
+        assert!(validate_signature("x".repeat(MAX_SIGNATURE_LEN + 1).as_str()).is_err());
+    }
+}
