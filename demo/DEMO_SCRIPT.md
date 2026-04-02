@@ -13,11 +13,9 @@
 
 ## 演示前准备
 
-1. 启动服务：
-   - `yarn run dev:control-plane`
-   - `yarn run dev:relayer`
-   - `yarn run dev:indexer`
+1. 启动服务（默认单端口）：
    - `yarn run dev:dashboard`
+   - 可选兼容模式：`DASHBOARD_COMPOSITION_MODE=proxy` + 独立启动 control-plane/relayer/indexer
 2. 打开 Dashboard：`http://127.0.0.1:24040/`
 3. 可选：先运行 `demo/live_demo.sh` 预热数据
 
@@ -73,8 +71,8 @@
 7. 总结当前成型状态
    - 链上主流程稳定
    - 控制面/执行层/索引层可联动
+   - 默认单端口对外（`24040`），便于企业网关接入
    - Dashboard 可直接操作并观测状态
-   - 默认端口统一到 `20000+`
    - 存储层默认 SQLite，支持模块化切换
 
 ## 视频录制建议

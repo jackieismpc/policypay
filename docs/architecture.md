@@ -63,7 +63,7 @@
 - `app/`
 - `modules/agent-adapter/`
 
-这些模块已经形成可演示闭环，其中 Dashboard 已升级为交互式工作台版本。
+这些模块已经形成可演示闭环，其中 Dashboard 已升级为交互式工作台版本，并支持单端口组合部署（默认）。
 
 ### 2.3 当前未实现部分
 
@@ -86,6 +86,9 @@
 
 5. 共享抽象由复用需求驱动
 - 只有当 control plane、relayer、dashboard 确实共享类型或逻辑时，再抽取 `modules/domain` 等共享模块。
+
+6. 路由与异步优先 Rust 技术栈
+- 新增高并发路由/异步模块优先采用 `tokio + axum`，现有 Express 模块以兼容为主逐步演进。
 
 ## 4. 模块划分
 
@@ -210,7 +213,8 @@
 - 批量 intent 创建表单
 - 批量审批入口
 - 摘要、审计、执行、时间线面板
-- 通过 dashboard 代理 API 聚合 Control Plane / Relayer / Indexer
+- 默认单端口组合模式下，内嵌挂载 Control Plane / Relayer / Indexer
+- proxy 模式下，通过 dashboard 代理 API 聚合外部 Control Plane / Relayer / Indexer
 
 ### 4.7 Agent Adapter Module
 

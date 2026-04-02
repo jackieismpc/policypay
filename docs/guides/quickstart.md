@@ -74,39 +74,36 @@ anchor build
 - `yarn run test:anchor:safe` 已覆盖单笔 Draft 与 BatchIntent 生命周期测试。
 - 详细分析见：`docs/guides/anchor-test-stability.md`。
 
-## 6. 启动各服务
+## 6. 启动方式
 
-### Control Plane
-
-```bash
-yarn run dev:control-plane
-```
-
-默认端口：`24010`
-
-### Relayer
-
-```bash
-yarn run dev:relayer
-```
-
-默认端口：`24020`
-
-### Indexer
-
-```bash
-yarn run dev:indexer
-```
-
-默认端口：`24030`
-
-### Dashboard
+### 默认：单端口组合模式（推荐）
 
 ```bash
 yarn run dev:dashboard
 ```
 
 默认端口：`24040`
+
+说明：
+
+- 默认 `DASHBOARD_COMPOSITION_MODE=embedded`，对外单端口。
+- Control Plane / Relayer / Indexer 以内嵌模块方式挂载在同一进程内。
+
+### 可选：独立多服务模式（兼容）
+
+```bash
+yarn run dev:control-plane
+yarn run dev:relayer
+yarn run dev:indexer
+DASHBOARD_COMPOSITION_MODE=proxy yarn run dev:dashboard
+```
+
+默认端口：
+
+- Control Plane `24010`
+- Relayer `24020`
+- Indexer `24030`
+- Dashboard `24040`
 
 ## 7. 存储配置（默认 SQLite）
 
@@ -139,6 +136,11 @@ export POLICYPAY_STORAGE_DRIVER=json
 - `POST /api/intents`
 - `POST /api/intents/batch`
 - `POST /api/intents/batch/approve`
+
+说明：
+
+- 单端口模式下，业务调用统一走 Dashboard 网关（`/api/*`）。
+- 独立服务模式下，Dashboard 会转发到外部 Control Plane / Relayer / Indexer。
 
 ### Control Plane
 

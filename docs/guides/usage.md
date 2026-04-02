@@ -13,8 +13,8 @@
 
 1. 启动本地 validator（或使用已有 localnet）
 2. 构建并部署程序
-3. 启动服务：Control Plane / Relayer / Indexer / Dashboard
-4. 打开 Dashboard 执行操作
+3. 启动 Dashboard（默认单端口组合模式）
+4. 打开 Dashboard 执行操作（或调用 `/api/*`）
 
 ## 2. 本地命令
 
@@ -25,19 +25,23 @@ anchor build
 # 按你的环境部署（示例）
 anchor deploy
 
-# 启动服务
-yarn run dev:control-plane
-yarn run dev:relayer
-yarn run dev:indexer
+# 启动单端口网关（默认）
 yarn run dev:dashboard
 ```
 
 ## 3. 默认地址与端口（20000+）
 
-- Control Plane: `http://127.0.0.1:24010`
-- Relayer: `http://127.0.0.1:24020`
-- Indexer: `http://127.0.0.1:24030`
-- Dashboard: `http://127.0.0.1:24040`
+- 对外入口（默认）：`http://127.0.0.1:24040`
+- 独立服务模式（proxy）可选端口：
+  - Control Plane `24010`
+  - Relayer `24020`
+  - Indexer `24030`
+
+### 3.1 组合模式配置
+
+- `DASHBOARD_COMPOSITION_MODE=embedded`：默认单端口内聚模式
+- `DASHBOARD_COMPOSITION_MODE=proxy`：转发到外部服务
+- `DASHBOARD_PORT` 或 `POLICYPAY_PORT`：网关端口（默认 `24040`）
 
 ## 4. 存储配置（模块化）
 
@@ -167,6 +171,11 @@ Dashboard 内部代理接口：
 - `POST /api/intents`
 - `POST /api/intents/batch`
 - `POST /api/intents/batch/approve`
+
+说明：
+
+- `embedded` 模式下，Dashboard 会在同进程挂载 Control Plane / Relayer / Indexer。
+- `proxy` 模式下，Dashboard 会转发到 `CONTROL_PLANE_BASE_URL` / `RELAYER_BASE_URL` / `INDEXER_BASE_URL`。
 
 ## 9. Agent Adapter
 
