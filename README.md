@@ -16,6 +16,7 @@ PolicyPay 是面向企业支付场景的「稳定币支付流程层」。
 - 模块化存储：默认 SQLite，后续可平滑替换 PostgreSQL
 - 面向非技术用户的中文 Dashboard（同时保留 API 直调能力）
 - AI 助手能力（规划中，阶段 C/D 落地）：Policy 参数建议、批量异常风险提示、审批摘要与失败归因建议
+- Agent Draft（规划中，阶段 C 落地）：支持 CSV/自然语言生成 Intent Draft，并强制“人工审批前置”
 
 ## 产品优势
 
@@ -31,6 +32,8 @@ PolicyPay 是面向企业支付场景的「稳定币支付流程层」。
 - 后端入口：Rust Unified API（`tokio + axum`）
 - 链上交互：Rust 直接调用 `policy_pay`（已移除对 legacy control-plane 的运行时依赖）
 - 存储：SQLite（默认 `./data/policypay.sqlite`）
+
+说明：当前仓库已有 `modules/agent-adapter` 的 CSV/自然语言草稿解析与 `requiresHumanApproval=true` 约束，但尚未接入 Rust 统一 API 默认入口。
 
 ## Quick Start
 
