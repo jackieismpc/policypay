@@ -6,5 +6,7 @@ export const relayerConfig = () => ({
   port: Number(process.env.RELAYER_PORT ?? 4020),
   controlPlaneBaseUrl:
     process.env.CONTROL_PLANE_BASE_URL ?? "http://127.0.0.1:4010",
-  storePath: path.join(rootDir, "services/relayer/data/records.json"),
+  storePath:
+    process.env.RELAYER_STORE_PATH ??
+    path.join(rootDir, "services/relayer/data/records.json"),
 });

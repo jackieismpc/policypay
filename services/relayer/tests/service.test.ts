@@ -39,3 +39,47 @@ test("relayer service records failed and confirmed executions", async () => {
 
   fs.rmSync(filePath, { force: true });
 });
+
+test("relayer service processes batch with continue-on-error mode", async () => {
+  const filePath = path.join(
+    os.tmpdir(),
+    `policy-pay-relayer-batch-${Date.now()}.json`
+  );
+  const service = new RelayerService(new RelayerStore(filePath));
+
+  const result = await service.processBatch(
+    [
+      {
+        policy: "policy-1",
+        intentId: 10,
+        paymentIntent: "intent-pda-10",
+      },
+      {
+        policy: "policy-1",
+        intentId: 11,
+        paymentIntent: "intent-pda-11",
+        shouldFail: true,
+        failureReason: "simulated-failure",
+      },
+      {
+        policy: "policy-1",
+        intentId: 12,
+        paymentIntent: "intent-pda-12",
+      },
+    ],
+    "continue-on-error"
+  );
+
+  assert.equal(result.total, 3);
+  assert.equal(result.processed, 3);
+  assert.equal(result.succeeded, 2);
+  assert.equal(result.failed, 1);
+
+  const records = service.list();
+  assert.equal(records.length, 3);
+  assert.equal(records[0].intentId, 12);
+  assert.equal(records[1].intentId, 11);
+  assert.equal(records[2].intentId, 10);
+
+  fs.rmSync(filePath, { force: true });
+});
