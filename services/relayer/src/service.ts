@@ -1,3 +1,4 @@
+import { EXECUTION_STATUSES } from "../../../modules/domain/src/index";
 import type { RelayerStoreLike } from "./store";
 
 export type ExecutionTask = {
@@ -17,6 +18,20 @@ export type BatchExecutionResult = {
   error?: string;
 };
 
+const requireExecutionStatus = (
+  status: "submitted" | "confirmed" | "failed"
+) => {
+  if (!EXECUTION_STATUSES.has(status)) {
+    throw new Error(`domain contract missing execution status: ${status}`);
+  }
+
+  return status;
+};
+
+const SUBMITTED_STATUS = requireExecutionStatus("submitted");
+const CONFIRMED_STATUS = requireExecutionStatus("confirmed");
+const FAILED_STATUS = requireExecutionStatus("failed");
+
 export class RelayerService {
   constructor(private readonly store: RelayerStoreLike) {}
 
@@ -27,7 +42,7 @@ export class RelayerService {
       return this.store.upsert({
         intentId: task.intentId,
         paymentIntent: task.paymentIntent,
-        status: "failed",
+        status: FAILED_STATUS,
         failureReason: task.failureReason ?? "relayer simulated failure",
         updatedAt: timestamp,
       });
@@ -36,7 +51,7 @@ export class RelayerService {
     return this.store.upsert({
       intentId: task.intentId,
       paymentIntent: task.paymentIntent,
-      status: "submitted",
+      status: SUBMITTED_STATUS,
       signature: `relayer-${task.intentId}-${Date.now()}`,
       updatedAt: timestamp,
     });
@@ -53,7 +68,7 @@ export class RelayerService {
 
     return this.store.upsert({
       ...existing,
-      status: "confirmed",
+      status: CONFIRMED_STATUS,
       updatedAt: new Date().toISOString(),
     });
   }
@@ -68,7 +83,7 @@ export class RelayerService {
     for (const task of tasks) {
       try {
         const record = await this.process(task);
-        const status = record.status === "failed" ? "failed" : "succeeded";
+        const status = record.status === FAILED_STATUS ? "failed" : "succeeded";
         results.push({
           intentId: task.intentId,
           status,

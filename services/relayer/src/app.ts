@@ -1,4 +1,9 @@
 import express from "express";
+import {
+  DOMAIN_CONTRACT,
+  BATCH_MODES,
+  EXECUTION_STATUSES,
+} from "../../../modules/domain/src/index";
 
 import { relayerConfig } from "./config";
 import {
@@ -40,15 +45,17 @@ const ensureIntentId = (value: unknown, field = "intentId") => {
 };
 
 const parseMode = (value: unknown): BatchExecutionMode => {
-  if (value === undefined || value === "abort-on-error") {
+  if (value === undefined) {
     return "abort-on-error";
   }
 
-  if (value === "continue-on-error") {
-    return "continue-on-error";
+  if (typeof value === "string" && BATCH_MODES.has(value)) {
+    return value as BatchExecutionMode;
   }
 
-  throw new Error("mode must be 'abort-on-error' or 'continue-on-error'");
+  throw new Error(
+    `mode must be one of: ${DOMAIN_CONTRACT.batchModes.join(", ")}`
+  );
 };
 
 const parseExecutionTask = (value: unknown): ExecutionTask => {
@@ -105,15 +112,12 @@ export const createRelayerApp = () => {
   app.get("/executions", (req, res) => {
     const status = req.query.status;
 
-    if (
-      status !== undefined &&
-      status !== "submitted" &&
-      status !== "confirmed" &&
-      status !== "failed"
-    ) {
-      res
-        .status(400)
-        .json({ error: "status must be submitted, confirmed, or failed" });
+    if (status !== undefined && !EXECUTION_STATUSES.has(String(status))) {
+      res.status(400).json({
+        error: `status must be one of: ${DOMAIN_CONTRACT.executionStatuses.join(
+          ", "
+        )}`,
+      });
       return;
     }
 

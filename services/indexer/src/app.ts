@@ -1,4 +1,8 @@
 import express from "express";
+import {
+  DOMAIN_CONTRACT,
+  TIMELINE_SOURCES,
+} from "../../../modules/domain/src/index";
 
 import { indexerConfig } from "./config";
 import { IndexerService } from "./service";
@@ -58,10 +62,14 @@ export const createIndexerApp = () => {
       const sourceFilter =
         source === undefined
           ? undefined
-          : source === "chain" || source === "relayer"
+          : TIMELINE_SOURCES.has(String(source))
           ? source
           : (() => {
-              throw new Error("source must be chain or relayer");
+              throw new Error(
+                `source must be one of: ${DOMAIN_CONTRACT.timelineSources.join(
+                  ", "
+                )}`
+              );
             })();
 
       const items = service.list().filter((item) => {

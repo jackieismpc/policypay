@@ -234,16 +234,6 @@
             </label>
             <div class="row">
               <label
-                >付款单号（Intent ID）
-                <input
-                  id="single-intent-id"
-                  required
-                  type="number"
-                  min="0"
-                  placeholder="101"
-                />
-              </label>
-              <label
                 >付款金额（最小单位）
                 <input
                   id="single-amount"
@@ -264,11 +254,7 @@
             </label>
             <label
               >付款备注（Memo）
-              <input id="single-memo" placeholder="invoice-101" />
-            </label>
-            <label
-              >业务流水号（Reference）
-              <input id="single-reference" placeholder="ref-101" />
+              <input id="single-memo" placeholder="可选，不填则默认空字符串" />
             </label>
             <button type="submit">创建付款单</button>
           </form>
@@ -521,6 +507,28 @@
         return body;
       };
 
+      const domainState = {
+        batchModes: new Set(["abort-on-error", "continue-on-error"]),
+      };
+
+      const loadDomainContract = async () => {
+        const contract = await requestJson("/api/v1/domain/contract");
+        if (Array.isArray(contract.batchModes) && contract.batchModes.length) {
+          domainState.batchModes = new Set(contract.batchModes);
+        }
+        return contract;
+      };
+
+      const ensureBatchMode = (mode) => {
+        if (!domainState.batchModes.has(mode)) {
+          throw new Error(
+            `批次模式不在领域合同允许范围内: ${Array.from(
+              domainState.batchModes
+            ).join(", ")}`
+          );
+        }
+      };
+
       const parseBatchItems = (text) => {
         const lines = text
           .split(/\r?\n/)
@@ -588,15 +596,13 @@
 
         const payload = {
           policy: byId("single-policy").value,
-          intentId: Number(byId("single-intent-id").value),
           recipient: byId("single-recipient").value,
           amount: Number(byId("single-amount").value),
           memo: byId("single-memo").value,
-          reference: byId("single-reference").value,
         };
 
         try {
-          const response = await requestJson("/api/v1/intents", {
+          const response = await requestJson("/api/v1/intents/minimal", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -620,6 +626,7 @@
           const policy = byId("batch-policy").value;
           const batchId = Number(byId("batch-id").value);
           const mode = byId("batch-mode").value;
+          ensureBatchMode(mode);
 
           if (!Number.isSafeInteger(batchId) || batchId < 0) {
             throw new Error("批次编号必须是非负整数");
@@ -738,13 +745,15 @@
       byId("onchain-create-batch").addEventListener("click", async () => {
         try {
           const { policy, batchId } = getOnchainBase();
+          const mode = byId("onchain-mode").value;
+          ensureBatchMode(mode);
           const response = await requestJson("/api/v1/batches", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               policy,
               batchId,
-              mode: byId("onchain-mode").value,
+              mode,
             }),
           });
 
@@ -891,6 +900,14 @@
 
       refreshPanels().catch((error) => {
         setStatus("approve-status", String(error), "err");
+      });
+
+      loadDomainContract().catch((error) => {
+        setStatus(
+          "approve-status",
+          "领域合同加载失败，已使用本地默认约束: " + String(error),
+          "err"
+        );
       });
     </script>
   </body>

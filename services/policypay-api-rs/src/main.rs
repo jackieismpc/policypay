@@ -1,7 +1,12 @@
 mod chain_client;
 mod domain;
 
-use std::{env, fs, net::SocketAddr, path::Path};
+use std::{
+    env, fs,
+    net::SocketAddr,
+    path::Path,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use anyhow::anyhow;
 use axum::{
@@ -37,6 +42,14 @@ struct AppState {
 #[derive(Debug, Deserialize)]
 struct PolicyOnlyInput {
     policy: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateIntentMinimalInput {
+    policy: String,
+    recipient: String,
+    amount: u64,
+    memo: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,6 +193,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/policies/:policy/batches/:batch_id", get(get_policy_batch))
         .route("/intents", post(create_intent))
+        .route("/intents/minimal", post(create_intent_minimal))
         .route("/intents/draft", post(create_draft_intent))
         .route("/intents/:intent_id/submit", post(submit_draft_intent))
         .route("/intents/:intent_id/approve", post(approve_intent))
@@ -621,6 +635,7 @@ async fn openapi_spec() -> impl IntoResponse {
         "paths": {
             "/health": { "get": { "summary": "Health check" } },
             "/intents": { "post": { "summary": "Create intent" } },
+            "/intents/minimal": { "post": { "summary": "Create intent with business-minimal fields (auto-generates intentId/reference)" } },
             "/intents/draft": { "post": { "summary": "Create draft intent" } },
             "/intents/{intentId}/submit": { "post": { "summary": "Submit draft intent" } },
             "/intents/{intentId}/approve": { "post": { "summary": "Approve intent" } },
@@ -739,6 +754,64 @@ async fn create_intent(
                 .map_err(|e| anyhow!("invalid create intent payload: {e}"))?;
             let value = chain.create_intent(input)?;
             Ok((StatusCode::CREATED, value))
+        },
+    )
+    .await
+}
+
+fn generate_intent_id() -> u64 {
+    static INTENT_NONCE: AtomicU64 = AtomicU64::new(0);
+    let now_ms = Utc::now().timestamp_millis();
+    let base = if now_ms < 0 { 0_u64 } else { now_ms as u64 };
+    let nonce = INTENT_NONCE.fetch_add(1, Ordering::Relaxed) & 0xFFFF;
+    (base << 16) | nonce
+}
+
+fn generate_reference(intent_id: u64) -> String {
+    format!("auto-{intent_id}")
+}
+
+async fn create_intent_minimal(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Response {
+    onchain_write_with_audit_and_idempotency(
+        state,
+        headers,
+        "create_intent_minimal",
+        "/intents/minimal".to_string(),
+        payload,
+        move |chain, body| {
+            let input: CreateIntentMinimalInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid create intent minimal payload: {e}"))?;
+
+            if input.amount == 0 {
+                return Err(anyhow!("amount must be a positive integer"));
+            }
+
+            let intent_id = generate_intent_id();
+            let memo = input.memo.unwrap_or_default();
+            let reference = generate_reference(intent_id);
+
+            let value = chain.create_intent(CreateIntentInput {
+                policy: input.policy,
+                intent_id,
+                recipient: input.recipient,
+                amount: input.amount,
+                memo: Some(memo.clone()),
+                reference: Some(reference.clone()),
+            })?;
+
+            let response = json!({
+                "intentId": intent_id,
+                "reference": reference,
+                "memo": memo,
+                "signature": value.get("signature"),
+                "paymentIntent": value.get("paymentIntent")
+            });
+
+            Ok((StatusCode::CREATED, response))
         },
     )
     .await
@@ -1509,6 +1582,17 @@ mod tests {
         let a = request_hash("POST", "/intents", &json!({ "intentId": 1 }));
         let b = request_hash("POST", "/intents", &json!({ "intentId": 2 }));
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn generated_intent_id_and_reference_are_stable_format() {
+        let first = generate_intent_id();
+        let second = generate_intent_id();
+        assert!(second >= first);
+
+        let reference = generate_reference(first);
+        assert!(reference.starts_with("auto-"));
+        assert!(reference.contains(&first.to_string()));
     }
 
     #[test]

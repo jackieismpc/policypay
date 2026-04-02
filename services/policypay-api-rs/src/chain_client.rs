@@ -52,8 +52,8 @@ pub struct CreateIntentInput {
     pub intent_id: u64,
     pub recipient: String,
     pub amount: u64,
-    pub memo: String,
-    pub reference: String,
+    pub memo: Option<String>,
+    pub reference: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,8 +96,8 @@ pub struct AddBatchItemInput {
     pub intent_id: u64,
     pub recipient: String,
     pub amount: u64,
-    pub memo: String,
-    pub reference: String,
+    pub memo: Option<String>,
+    pub reference: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -265,6 +265,8 @@ impl ChainClient {
         let policy = parse_pubkey(&input.policy, "policy")?;
         let recipient = parse_pubkey(&input.recipient, "recipient")?;
         let payment_intent = self.derive_intent_pda(&policy, input.intent_id);
+        let memo = input.memo.unwrap_or_default();
+        let reference = input.reference.unwrap_or_default();
 
         let accounts = program_accounts::CreateIntent {
             creator: self.authority,
@@ -277,8 +279,8 @@ impl ChainClient {
             intent_id: input.intent_id,
             recipient,
             amount: input.amount,
-            memo: input.memo,
-            reference: input.reference,
+            memo,
+            reference,
         };
 
         let signature = self.send_instruction(Instruction {
@@ -301,6 +303,8 @@ impl ChainClient {
         let policy = parse_pubkey(&input.policy, "policy")?;
         let recipient = parse_pubkey(&input.recipient, "recipient")?;
         let payment_intent = self.derive_intent_pda(&policy, input.intent_id);
+        let memo = input.memo.unwrap_or_default();
+        let reference = input.reference.unwrap_or_default();
 
         let accounts = program_accounts::CreateIntent {
             creator: self.authority,
@@ -313,8 +317,8 @@ impl ChainClient {
             intent_id: input.intent_id,
             recipient,
             amount: input.amount,
-            memo: input.memo,
-            reference: input.reference,
+            memo,
+            reference,
         };
 
         let signature = self.send_instruction(Instruction {
@@ -462,6 +466,8 @@ impl ChainClient {
         let policy = parse_pubkey(&input.policy, "policy")?;
         let batch_intent = self.derive_batch_pda(&policy, input.batch_id);
         let recipient = parse_pubkey(&input.recipient, "recipient")?;
+        let memo = input.memo.unwrap_or_default();
+        let reference = input.reference.unwrap_or_default();
 
         let accounts = program_accounts::ModifyBatchIntent {
             creator: self.authority,
@@ -473,8 +479,8 @@ impl ChainClient {
             intent_id: input.intent_id,
             recipient,
             amount: input.amount,
-            memo: input.memo,
-            reference: input.reference,
+            memo,
+            reference,
         };
 
         let signature = self.send_instruction(Instruction {
