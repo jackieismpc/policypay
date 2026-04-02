@@ -1,19 +1,4 @@
-export type DraftIntent = {
-  source: "csv" | "natural-language";
-  recipient: string;
-  amount: number;
-  memo: string;
-  reference: string;
-  requiresHumanApproval: true;
-  warnings: string[];
-};
-
-export type DraftBatchIntent = {
-  source: DraftIntent["source"];
-  items: DraftIntent[];
-  requiresHumanApproval: true;
-  warnings: string[];
-};
+import type { DraftBatchIntent, DraftIntent } from "../../domain/src/index";
 
 const toDraftIntent = (
   source: DraftIntent["source"],

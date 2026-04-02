@@ -1,0 +1,59 @@
+{
+  "version": "v1",
+  "intentStatuses": [
+    "draft",
+    "pending_approval",
+    "approved",
+    "submitted",
+    "confirmed",
+    "failed",
+    "cancelled"
+  ],
+  "batchStatuses": ["draft", "pending_approval", "approved", "cancelled"],
+  "executionStatuses": ["submitted", "confirmed", "failed"],
+  "timelineSources": ["chain", "relayer"],
+  "batchModes": ["abort-on-error", "continue-on-error"],
+  "events": [
+    "intent.created",
+    "intent.submitted_for_approval",
+    "intent.approved",
+    "intent.cancelled",
+    "intent.retried",
+    "batch.created",
+    "batch.item_added",
+    "batch.submitted_for_approval",
+    "batch.approved",
+    "batch.cancelled",
+    "execution.submitted",
+    "execution.confirmed",
+    "execution.failed",
+    "timeline.chain_recorded",
+    "timeline.relayer_recorded"
+  ],
+  "errorCodes": [
+    {
+      "code": "validation.invalid_input",
+      "description": "请求字段格式或语义非法"
+    },
+    {
+      "code": "auth.unauthorized",
+      "description": "未提供或提供了无效的 API key"
+    },
+    {
+      "code": "idem.conflict",
+      "description": "幂等键重复但请求体不一致"
+    },
+    {
+      "code": "resource.not_found",
+      "description": "目标资源不存在"
+    },
+    {
+      "code": "storage.failure",
+      "description": "本地存储读写失败"
+    },
+    {
+      "code": "chain.failure",
+      "description": "链上调用失败"
+    }
+  ]
+}

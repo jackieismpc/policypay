@@ -1,4 +1,5 @@
 mod chain_client;
+mod domain;
 
 use std::{env, fs, net::SocketAddr, path::Path};
 
@@ -22,6 +23,7 @@ use crate::chain_client::{
     AddBatchItemInput, ApproveBatchInput, ApproveIntentInput, BatchActionInput, ChainClient,
     CreateBatchInput, CreateIntentInput, CreatePolicyInput, IntentActionInput,
 };
+use crate::domain::{domain_contract, is_valid_execution_status, is_valid_timeline_source};
 
 const DASHBOARD_HTML: &str = include_str!("../../../app/static/dashboard.html");
 
@@ -169,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/openapi.json", get(openapi_spec))
         .route("/summary", get(get_summary))
         .route("/audit-logs", get(get_audit_logs))
+        .route("/domain/contract", get(get_domain_contract))
         .route("/policies", post(create_policy))
         .route("/policies/:mint", get(get_policy_by_mint))
         .route(
@@ -629,10 +632,15 @@ async fn openapi_spec() -> impl IntoResponse {
             "/batches/{batchId}/approve": { "post": { "summary": "Approve batch intent" } },
             "/batches/{batchId}/cancel": { "post": { "summary": "Cancel batch intent" } },
             "/audit-logs": { "get": { "summary": "List audit logs" } },
+            "/domain/contract": { "get": { "summary": "Domain contract (statuses, events, error codes)" } },
             "/executions": { "get": { "summary": "List executions" }, "post": { "summary": "Create simulated execution" } },
             "/timeline": { "get": { "summary": "List timeline" } }
         }
     }))
+}
+
+async fn get_domain_contract() -> impl IntoResponse {
+    Json(domain_contract().clone())
 }
 
 async fn get_audit_logs(State(state): State<AppState>) -> impl IntoResponse {
@@ -1072,10 +1080,11 @@ async fn list_executions(
     Query(query): Query<ExecutionListQuery>,
 ) -> Response {
     if let Some(status) = &query.status {
-        if status != "submitted" && status != "confirmed" && status != "failed" {
+        if !is_valid_execution_status(status) {
+            let allowed = domain_contract().execution_statuses.join(", ");
             return json_error(
                 StatusCode::BAD_REQUEST,
-                "status must be submitted, confirmed, or failed",
+                format!("status must be one of: {allowed}"),
             );
         }
     }
@@ -1310,8 +1319,12 @@ async fn list_timeline(
     Query(query): Query<TimelineListQuery>,
 ) -> Response {
     if let Some(source) = &query.source {
-        if source != "chain" && source != "relayer" {
-            return json_error(StatusCode::BAD_REQUEST, "source must be chain or relayer");
+        if !is_valid_timeline_source(source) {
+            let allowed = domain_contract().timeline_sources.join(", ");
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                format!("source must be one of: {allowed}"),
+            );
         }
     }
 
@@ -1566,6 +1579,27 @@ mod tests {
             failure_reason: None,
         };
         assert!(validate_execution_task(&valid).is_ok());
+    }
+
+    #[test]
+    fn domain_contract_includes_execution_and_timeline_enums() {
+        let contract = domain_contract();
+        assert!(contract
+            .execution_statuses
+            .iter()
+            .any(|value| value == "submitted"));
+        assert!(contract
+            .execution_statuses
+            .iter()
+            .any(|value| value == "confirmed"));
+        assert!(contract
+            .timeline_sources
+            .iter()
+            .any(|value| value == "chain"));
+        assert!(contract
+            .timeline_sources
+            .iter()
+            .any(|value| value == "relayer"));
     }
 
     #[tokio::test]

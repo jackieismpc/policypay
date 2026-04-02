@@ -141,6 +141,7 @@
 - `GET /health`
 - `GET /api/v1/summary`
 - `GET /api/v1/audit-logs`
+- `GET /api/v1/domain/contract`
 - `GET /api/v1/executions`
 - `GET /api/v1/executions/:intentId`
 - `POST /api/v1/executions`

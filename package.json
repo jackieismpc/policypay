@@ -8,6 +8,7 @@
     "test:anchor:safe": "bash ./scripts/anchor-test-safe.sh",
     "dev:api-rs": "cargo run -p policypay-api-rs",
     "test:api-rs": "cargo test -p policypay-api-rs",
+    "test:domain": "tsx --test modules/domain/tests/**/*.test.ts",
     "test:agent-adapter": "tsx --test modules/agent-adapter/tests/**/*.test.ts"
   },
   "dependencies": {
