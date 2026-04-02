@@ -27,7 +27,8 @@ describe("policy_pay", () => {
       program.programId
     )[0];
 
-  const statusName = (status: Record<string, unknown>) => Object.keys(status)[0];
+  const statusName = (status: Record<string, unknown>) =>
+    Object.keys(status)[0];
 
   const errorText = (error: unknown) => {
     const err = error as {
@@ -202,7 +203,9 @@ describe("policy_pay", () => {
 
     intent = await program.account.paymentIntent.fetch(paymentIntent);
     expect(statusName(intent.status)).to.eq("approved");
-    expect(intent.approver.toBase58()).to.eq(provider.wallet.publicKey.toBase58());
+    expect(intent.approver.toBase58()).to.eq(
+      provider.wallet.publicKey.toBase58()
+    );
     expect(Array.from(intent.approvalDigest)).to.deep.eq(approvalDigest);
 
     await program.methods
@@ -464,7 +467,9 @@ describe("policy_pay", () => {
       .signers([creator])
       .rpc();
 
-    const canceledIntent = await program.account.paymentIntent.fetch(paymentIntent);
+    const canceledIntent = await program.account.paymentIntent.fetch(
+      paymentIntent
+    );
     expect(statusName(canceledIntent.status)).to.eq("cancelled");
 
     const { paymentIntent: retryIntent } = await createIntent({
@@ -750,7 +755,9 @@ describe("policy_pay", () => {
         .rpc();
     }
 
-    const failedIntent = await program.account.paymentIntent.fetch(paymentIntent);
+    const failedIntent = await program.account.paymentIntent.fetch(
+      paymentIntent
+    );
     expect(statusName(failedIntent.status)).to.eq("failed");
     expect(failedIntent.retryCount).to.eq(3);
 

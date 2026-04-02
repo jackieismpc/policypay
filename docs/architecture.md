@@ -257,6 +257,24 @@ EventSink
 6. Agent Adapter Draft MVP
 7. 最终 README / docs / 示例 / demo 收尾
 
+### 6.1 当前 Control Plane MVP 范围
+
+当前阶段的 Control Plane 只做最小闭环：
+
+- 查询单个 policy
+- 查询单个 intent
+- 编排 `create_intent`
+- 编排 `approve_intent`
+- 编排 `cancel_intent`
+- 编排 `retry_intent`
+- 记录最小本地审计日志
+
+说明：
+
+- Control Plane 当前不引入数据库，审计先落到本地 JSON 文件。
+- Control Plane 当前不替代链上执行，仅负责查询、编排与审计留痕。
+- 后续 Relayer / Indexer 会在此基础上接入自动执行与状态回写。
+
 ## 7. 当前核心状态机
 
 ### 7.1 当前实际链上状态机

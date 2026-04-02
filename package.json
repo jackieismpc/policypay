@@ -4,11 +4,14 @@
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
     "test:anchor:ts": "ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\"",
-    "test:anchor:local": "ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=./wallets/localnet.json yarn run test:anchor:ts"
+    "test:anchor:local": "ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=./wallets/localnet.json yarn run test:anchor:ts",
+    "dev:control-plane": "tsx services/control-plane/src/server.ts",
+    "test:control-plane": "tsx --test services/control-plane/tests/**/*.test.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "bn.js": "^5.2.2"
+    "bn.js": "^5.2.2",
+    "express": "^4.21.2"
   },
   "devDependencies": {
     "chai": "^4.3.4",
@@ -16,7 +19,9 @@
     "ts-mocha": "^10.0.0",
     "@types/bn.js": "^5.1.0",
     "@types/chai": "^4.3.0",
+    "@types/express": "^5.0.3",
     "@types/mocha": "^9.0.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.7.3",
     "prettier": "^2.6.2"
   }
