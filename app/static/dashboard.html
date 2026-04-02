@@ -262,7 +262,7 @@
         </article>
 
         <article class="card">
-          <h2>批次创建（链上 BatchIntent）</h2>
+          <h2>批量付款创建（业务最小输入）</h2>
           <form id="batch-form">
             <label
               >支付规则编号（Policy 地址）
@@ -273,34 +273,13 @@
               />
             </label>
             <label
-              >批次编号（Batch ID）
-              <input
-                id="batch-id"
-                required
-                type="number"
-                min="0"
-                placeholder="5001"
-              />
-            </label>
-            <label
-              >批量模式
-              <select id="batch-mode">
-                <option value="abort-on-error">
-                  遇错即停（abort-on-error）
-                </option>
-                <option value="continue-on-error">
-                  继续处理（continue-on-error）
-                </option>
-              </select>
-            </label>
-            <label
-              >批次明细（每行一条，格式：付款单号,收款地址,金额,备注,业务流水号）
+              >批次明细（每行一条，格式：收款地址,金额,备注）
               <textarea id="batch-items" required>
-201,recipient-a,100,invoice-201,ref-201
-202,recipient-b,250,invoice-202,ref-202</textarea
+recipient-a,100,invoice-201
+recipient-b,250,invoice-202</textarea
               >
             </label>
-            <button type="submit">创建批次并添加明细</button>
+            <button type="submit">创建批次（系统自动生成编号和明细ID）</button>
           </form>
           <div id="batch-status" class="status">等待提交</div>
         </article>
@@ -319,13 +298,13 @@
               />
             </label>
             <label
-              >批次编号（Batch ID）
+              >当前批次编号（自动带入）
               <input
                 id="approve-batch-id"
-                required
                 type="number"
                 min="0"
-                placeholder="5001"
+                placeholder="请先创建批次"
+                readonly
               />
             </label>
             <label
@@ -359,7 +338,7 @@
 
       <section class="grid two">
         <article class="card">
-          <h2>链上 BatchIntent 全流程（批处理）</h2>
+          <h2>高级调试：链上 BatchIntent 全流程（技术模式）</h2>
           <label
             >支付规则编号（Policy 地址）
             <input
@@ -541,21 +520,14 @@
 
         return lines.map((line, index) => {
           const parts = line.split(",").map((part) => part.trim());
-          if (parts.length < 5) {
+          if (parts.length < 2 || parts.length > 3) {
             throw new Error(
-              `第 ${
-                index + 1
-              } 行格式错误，应为：付款单号,收款地址,金额,备注,业务流水号`
+              `第 ${index + 1} 行格式错误，应为：收款地址,金额,备注（备注可省略）`
             );
           }
 
-          const [intentIdRaw, recipient, amountRaw, memo, reference] = parts;
-          const intentId = Number(intentIdRaw);
+          const [recipient, amountRaw, memo] = parts;
           const amount = Number(amountRaw);
-
-          if (!Number.isSafeInteger(intentId) || intentId < 0) {
-            throw new Error(`第 ${index + 1} 行付款单号必须是非负整数`);
-          }
 
           if (!recipient) {
             throw new Error(`第 ${index + 1} 行收款地址不能为空`);
@@ -566,11 +538,9 @@
           }
 
           return {
-            intentId,
             recipient,
             amount,
             memo: memo || "",
-            reference: reference || "",
           };
         });
       };
@@ -623,80 +593,38 @@
         event.preventDefault();
 
         try {
-          const policy = byId("batch-policy").value;
-          const batchId = Number(byId("batch-id").value);
-          const mode = byId("batch-mode").value;
-          ensureBatchMode(mode);
-
-          if (!Number.isSafeInteger(batchId) || batchId < 0) {
-            throw new Error("批次编号必须是非负整数");
+          const policy = byId("batch-policy").value.trim();
+          if (!policy) {
+            throw new Error("支付规则编号不能为空");
           }
 
           const items = parseBatchItems(byId("batch-items").value);
-          await requestJson("/api/v1/batches", {
+          const response = await requestJson("/api/v1/batches/minimal", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ policy, batchId, mode }),
+            body: JSON.stringify({ policy, items }),
           });
 
-          const results = [];
-          for (const item of items) {
-            try {
-              const response = await requestJson(
-                `/api/v1/batches/${batchId}/items`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    policy,
-                    intentId: item.intentId,
-                    recipient: item.recipient,
-                    amount: item.amount,
-                    memo: item.memo,
-                    reference: item.reference,
-                  }),
-                }
-              );
-              results.push({
-                intentId: item.intentId,
-                status: "succeeded",
-                response,
-              });
-            } catch (error) {
-              results.push({
-                intentId: item.intentId,
-                status: "failed",
-                error: String(error),
-              });
-              if (mode === "abort-on-error") {
-                break;
-              }
-            }
-          }
-
-          const succeeded = results.filter(
-            (item) => item.status === "succeeded"
-          ).length;
-          const failed = results.length - succeeded;
+          const batchId = Number(response.batchId);
+          const mode = typeof response.mode === "string" ? response.mode : "";
 
           setStatus(
             "batch-status",
-            "批次创建完成: " +
-              asPrettyJson({
-                mode,
-                batchId,
-                processed: results.length,
-                succeeded,
-                failed,
-                results,
-              }),
+            "批次创建完成: " + asPrettyJson(response),
             "ok"
           );
 
-          byId("onchain-policy").value = policy;
-          byId("onchain-batch-id").value = String(batchId);
-          byId("approve-policy").value = policy;
-          byId("approve-batch-id").value = String(batchId);
+          if (Number.isSafeInteger(batchId) && batchId >= 0) {
+            byId("onchain-policy").value = policy;
+            byId("onchain-batch-id").value = String(batchId);
+            byId("approve-policy").value = policy;
+            byId("approve-batch-id").value = String(batchId);
+          }
+
+          if (mode && domainState.batchModes.has(mode)) {
+            byId("onchain-mode").value = mode;
+          }
+
           await refreshPanels();
         } catch (error) {
           setStatus("batch-status", String(error), "err");
@@ -707,8 +635,15 @@
         event.preventDefault();
 
         try {
-          const policy = byId("approve-policy").value;
-          const batchId = Number(byId("approve-batch-id").value);
+          const policy = byId("approve-policy").value.trim();
+          const batchIdRaw = byId("approve-batch-id").value.trim();
+          if (!policy) {
+            throw new Error("支付规则编号不能为空");
+          }
+          if (!batchIdRaw) {
+            throw new Error("请先创建批次，系统会自动带入批次编号");
+          }
+          const batchId = Number(batchIdRaw);
           const action = byId("approve-action").value;
 
           if (!Number.isSafeInteger(batchId) || batchId < 0) {

@@ -130,6 +130,35 @@
 
 ## 5. 批量流程（链上 BatchIntent）
 
+### 5.1 业务最小输入创建（推荐）
+
+`POST /api/v1/batches/minimal`
+
+```json
+{
+  "policy": "<policy-pda>",
+  "items": [
+    {
+      "recipient": "<recipient-a>",
+      "amount": 100,
+      "memo": "invoice-201"
+    },
+    {
+      "recipient": "<recipient-b>",
+      "amount": 250
+    }
+  ]
+}
+```
+
+说明：
+
+- 业务输入只需要 `policy + recipient + amount + memo`（`memo` 可省略，默认空字符串）。
+- `batchId`、每条明细的 `intentId`、`reference` 由后端自动生成。
+- `mode` 为可选高级字段；不传时默认 `abort-on-error`。
+
+### 5.2 完整字段流程（高级调用）
+
 1. 创建批次：`POST /api/v1/batches`
 
 ```json
@@ -202,7 +231,8 @@ Dashboard 地址：`http://127.0.0.1:24100/`
 
 - 页面字段已采用中文业务命名（保留技术字段对照）
 - 批量创建支持“每行一条”输入：
-  - `付款单号,收款地址,金额,备注,业务流水号`
+  - `收款地址,金额,备注`（备注可省略）
+- 业务批量创建默认使用最小输入接口 `/api/v1/batches/minimal`，由后端自动生成技术字段
 - 顶部支持可选 API Key 输入（用于对接启用鉴权的环境）
 
 ## 8. 测试建议顺序

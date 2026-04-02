@@ -65,6 +65,22 @@ curl -X POST http://127.0.0.1:24100/api/v1/intents/minimal \
 
 说明：`memo` 可省略，默认空字符串；`intentId` 与 `reference` 由后端自动生成。
 
+创建批量付款（最小输入）：
+
+```bash
+curl -X POST http://127.0.0.1:24100/api/v1/batches/minimal \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "policy": "<policy-pda>",
+    "items": [
+      { "recipient": "<recipient-a>", "amount": 100, "memo": "invoice-201" },
+      { "recipient": "<recipient-b>", "amount": 250 }
+    ]
+  }'
+```
+
+说明：每条明细只需 `recipient + amount + memo`；`batchId`、`intentId`、`reference` 由后端自动生成。
+
 ## 7. 关键配置
 
 - `POLICYPAY_RS_API_PORT`：默认 `24100`
