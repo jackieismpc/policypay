@@ -16,7 +16,7 @@ cluster = "localnet"
 wallet = "./wallets/localnet.json"
 
 [test]
-startup_wait = 10000
+startup_wait = 30000
 
 [scripts]
 test = "yarn run test:anchor:local"
