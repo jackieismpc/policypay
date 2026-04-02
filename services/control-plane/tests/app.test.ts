@@ -8,7 +8,9 @@ import { createApp } from "../src/app";
 import type { ControlPlaneConfig } from "../src/config";
 
 test("health route returns ok and program id", async () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "policy-pay-control-plane-"));
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "policy-pay-control-plane-")
+  );
   const config: ControlPlaneConfig = {
     rpcUrl: "http://127.0.0.1:8899",
     walletPath: path.join(process.cwd(), "wallets/localnet.json"),
