@@ -8,16 +8,7 @@
     "test:anchor:safe": "bash ./scripts/anchor-test-safe.sh",
     "dev:api-rs": "cargo run -p policypay-api-rs",
     "test:api-rs": "cargo test -p policypay-api-rs",
-    "legacy:dev:control-plane": "tsx services/control-plane/src/server.ts",
-    "legacy:test:control-plane": "tsx --test services/control-plane/tests/**/*.test.ts",
-    "legacy:dev:relayer": "tsx services/relayer/src/server.ts",
-    "legacy:test:relayer": "tsx --test services/relayer/tests/**/*.test.ts",
-    "legacy:dev:indexer": "tsx services/indexer/src/server.ts",
-    "legacy:test:indexer": "tsx --test services/indexer/tests/**/*.test.ts",
-    "dev:dashboard": "tsx app/src/server.ts",
-    "test:dashboard": "tsx --test app/src/**/*.test.ts",
-    "test:agent-adapter": "tsx --test modules/agent-adapter/tests/**/*.test.ts",
-    "test:e2e:offchain": "tsx --test tests/offchain/**/*.test.ts"
+    "test:agent-adapter": "tsx --test modules/agent-adapter/tests/**/*.test.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
