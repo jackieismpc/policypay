@@ -20,7 +20,8 @@
 1. 按 `demo/DEMO_SCRIPT.md` 顺序演示。
 2. 录制时先展示服务启动日志和端口（`24010/24020/24030/24040`）。
 3. 运行 `demo/live_demo.sh` 展示离链服务可复现调用。
-4. 最后展示 `README.md` + `docs/guides/quickstart.md` + `examples/README.md`。
+4. 补充演示一次链上 `create_draft_intent -> submit_draft_intent` 与 `BatchIntent` 审批流程。
+5. 最后展示 `README.md` + `docs/guides/quickstart.md` + `examples/README.md`。
 
 ## 交付检查项
 

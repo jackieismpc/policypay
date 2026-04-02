@@ -34,6 +34,11 @@ solana-keygen new --no-bip39-passphrase -s -o ./wallets/localnet.json
 anchor build
 ```
 
+当前链上已支持：
+
+- 单笔：`create_intent`、`create_draft_intent`、`submit_draft_intent`、`approve_intent`、`execute_intent`、`settle_intent`、`retry_intent`、`cancel_intent`
+- 批量：`create_batch_intent`、`add_batch_item`、`submit_batch_for_approval`、`approve_batch_intent`、`cancel_batch_intent`
+
 ## 4. 启动本地 validator
 
 可以使用你自己的 local validator，或用 `solana-test-validator` 启动本地链。
@@ -66,6 +71,7 @@ anchor build
 
 - `anchor test` 在部分环境中存在 validator 启动探测竞态，可能偶发失败。
 - 推荐优先使用 `yarn run test:anchor:safe`（独立端口 + 启动健康探测 + deploy + test）。
+- `yarn run test:anchor:safe` 已覆盖单笔 Draft 与 BatchIntent 生命周期测试。
 - 详细分析见：`docs/guides/anchor-test-stability.md`。
 
 ## 6. 启动各服务

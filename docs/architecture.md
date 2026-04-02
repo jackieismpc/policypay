@@ -20,6 +20,13 @@
 
 - `create_policy`
 - `create_intent`
+- `create_draft_intent`
+- `submit_draft_intent`
+- `create_batch_intent`
+- `add_batch_item`
+- `submit_batch_for_approval`
+- `approve_batch_intent`
+- `cancel_batch_intent`
 - `approve_intent`
 - `execute_intent`
 - `settle_intent`
@@ -30,10 +37,12 @@
 
 - `PolicyAccount`
 - `PaymentIntent`
+- `BatchIntent`
 
 当前真实可达状态流：
 
-- `PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+- 单笔：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+- 批量：`Draft -> PendingApproval -> Approved | Cancelled`
 
 当前已覆盖的最小测试：
 
@@ -58,12 +67,8 @@
 
 ### 2.3 当前未实现部分
 
-- batch intent 链上账户模型
-- 链上 Draft 流程
 - 更高阶存储后端（如 PostgreSQL）与迁移体系
 - 最终 demo 视频交付物
-
-说明：`IntentStatus` 中虽然已有 `Draft`，但链上尚未提供 Draft 的可达流程，因此当前仍建议将 Draft 先作为离链概念处理。
 
 ## 3. 设计原则
 
@@ -76,8 +81,8 @@
 3. Control Plane 不替代链上事实
 - Control Plane 负责统一 API、业务映射和审计聚合，但链上账户仍是最终事实源。
 
-4. Draft 优先离链化
-- Agent draft 在真正接入前，先以离链 schema 和人工确认流程表达，不急于扩大链上状态机。
+4. Draft 人工审批前置
+- Agent draft 和链上 draft 并行存在，但都必须经过人工确认后再进入执行路径。
 
 5. 共享抽象由复用需求驱动
 - 只有当 control plane、relayer、dashboard 确实共享类型或逻辑时，再抽取 `modules/domain` 等共享模块。
@@ -113,6 +118,8 @@
 
 - policy 创建
 - 单笔 intent 创建
+- 单笔 draft 创建与提交
+- batch intent 账户创建、加项、提交审批、审批、取消
 - 审批
 - 执行提交
 - 成功/失败结算
@@ -121,9 +128,8 @@
 
 当前缺口：
 
-- batch intent 未实现
 - 审计记录与事件仍可继续完善
-- Draft 尚未链上化
+- Control Plane 尚未默认切换到链上 `BatchIntent` 模式
 
 ### 4.3 Policy Engine Module
 
@@ -332,13 +338,14 @@ EventSink
 
 ### 7.1 当前实际链上状态机
 
-`PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+单笔：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+
+批量：`Draft -> PendingApproval -> Approved | Cancelled`
 
 ### 7.2 目标扩展方向
 
-`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
-
-当前仍不立即启用链上 `Draft`，以避免在主链路尚未稳定前扩大状态机复杂度。
+- 为批量执行增加更细粒度 item 级别执行态（如 `Submitted` / `Confirmed` / `Failed`）
+- 将链上 batch 指令逐步接入 Control Plane 对外编排 API
 
 ## 8. 架构冻结点
 

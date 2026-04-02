@@ -32,6 +32,13 @@
    - 说明当前 onchain program 支持：
      - `create_policy`
      - `create_intent`
+     - `create_draft_intent`
+     - `submit_draft_intent`
+     - `create_batch_intent`
+     - `add_batch_item`
+     - `submit_batch_for_approval`
+     - `approve_batch_intent`
+     - `cancel_batch_intent`
      - `approve_intent`
      - `execute_intent`
      - `settle_intent`
@@ -40,7 +47,7 @@
 
 3. 展示测试通过
    - 运行：
-     - `yarn run test:anchor:ts`
+     - `yarn run test:anchor:safe`
      - `yarn run test:control-plane`
      - `yarn run test:relayer`
      - `yarn run test:indexer`

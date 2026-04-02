@@ -159,3 +159,79 @@ recipient-2,200,invoice-2,ref-2
   "requiresHumanApproval": true
 }
 ```
+
+## 示例 8：Anchor 单笔 Draft 创建并提交审批
+
+```ts
+await program.methods
+  .createDraftIntent(
+    new anchor.BN(301),
+    recipientPubkey,
+    new anchor.BN(100),
+    "invoice-301",
+    "ref-301"
+  )
+  .accounts({
+    creator: wallet.publicKey,
+    policy,
+    paymentIntent,
+    systemProgram: anchor.web3.SystemProgram.programId,
+  })
+  .rpc();
+
+await program.methods
+  .submitDraftIntent()
+  .accounts({
+    submitter: wallet.publicKey,
+    policy,
+    paymentIntent,
+  })
+  .rpc();
+```
+
+## 示例 9：Anchor BatchIntent 草拟、提交与审批
+
+```ts
+await program.methods
+  .createBatchIntent(new anchor.BN(9001), { continueOnError: {} })
+  .accounts({
+    creator: wallet.publicKey,
+    policy,
+    batchIntent,
+    systemProgram: anchor.web3.SystemProgram.programId,
+  })
+  .rpc();
+
+await program.methods
+  .addBatchItem(
+    new anchor.BN(900101),
+    recipientPubkey,
+    new anchor.BN(150),
+    "invoice-900101",
+    "ref-900101"
+  )
+  .accounts({
+    creator: wallet.publicKey,
+    policy,
+    batchIntent,
+  })
+  .rpc();
+
+await program.methods
+  .submitBatchForApproval()
+  .accounts({
+    creator: wallet.publicKey,
+    policy,
+    batchIntent,
+  })
+  .rpc();
+
+await program.methods
+  .approveBatchIntent(Array(32).fill(1))
+  .accounts({
+    approver: wallet.publicKey,
+    policy,
+    batchIntent,
+  })
+  .rpc();
+```

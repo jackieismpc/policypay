@@ -10,13 +10,21 @@
 - 已实现指令：
   - `create_policy`
   - `create_intent`
+  - `create_draft_intent`
+  - `submit_draft_intent`
+  - `create_batch_intent`
+  - `add_batch_item`
+  - `submit_batch_for_approval`
+  - `approve_batch_intent`
+  - `cancel_batch_intent`
   - `approve_intent`
   - `execute_intent`
   - `settle_intent`
   - `retry_intent`
   - `cancel_intent`
 - 当前可达状态流：
-  - `PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+  - 单笔：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+  - 批量：`Draft -> PendingApproval -> Approved | Cancelled`
 - 已有 Anchor 测试覆盖：
   - 主流程生命周期
   - 失败后重试
@@ -35,8 +43,7 @@
 
 ### 当前未完成
 
-- batch intent 链上账户模型未实现（当前已实现 control-plane 编排批量）
-- `Draft` 尚未作为链上可达流程落地
+- Control Plane 当前批量编排默认仍是多次 `create_intent` 调用，尚未切换到链上 `BatchIntent` 指令路径
 - 仍需继续扩展并发压力与失败恢复场景的端到端回归覆盖
 - 最终 demo 视频仍需录制
 
@@ -87,6 +94,17 @@
 - Relayer / Indexer 先提供可查询 API，供 Dashboard 直接消费。
 - Dashboard 从静态入口升级为可操作页面，覆盖单笔创建、批量创建、状态追踪。
 - 当前阶段完成后已落地模块化存储，默认 SQLite，支持切换 JSON。
+
+### 阶段 3.6：链上 Draft + BatchIntent 状态机（已完成）
+
+目标：在链上补齐 `Draft` 和 `BatchIntent` 的可达流程，并补齐对应测试。
+
+当前阶段补充说明：
+
+- 新增链上单笔 draft 指令：`create_draft_intent`、`submit_draft_intent`。
+- 新增链上批量账户与指令：`create_batch_intent`、`add_batch_item`、`submit_batch_for_approval`、`approve_batch_intent`、`cancel_batch_intent`。
+- Anchor 测试新增 draft 与 batch 生命周期、权限和状态迁移覆盖。
+- 保留现有 Control Plane 批量编排接口，作为链上 batch 接口接入前的兼容路径。
 
 ### 阶段 4：Dashboard MVP
 
@@ -157,16 +175,15 @@
 补充落地策略：
 
 - batch intent 分两步实施：
-  - 第一步（当前阶段）：Control Plane 编排批量单笔 intent，先完成端到端可用性。
-  - 第二步（后续阶段）：评估链上 batch 账户模型，减少批量场景链上交互次数。
+  - 第一步（已完成）：Control Plane 编排批量单笔 intent，先完成端到端可用性。
+  - 第二步（已完成）：链上 batch 账户模型落地，后续逐步接入 Control Plane API。
 
 ## 5. 当前阶段的现实优先级
 
 1. 文档对齐
-2. 链上底座与测试补强
-3. 单笔 intent 离链闭环
-4. batch intent
-5. agent draft
+2. Control Plane 对接链上 `Draft` / `BatchIntent` 编排
+3. 扩展并发压力与失败恢复端到端回归
+4. demo 视频录制与交付归档
 
 ## 6. 质量门禁与提交规则
 
@@ -212,7 +229,7 @@
 
 ### 阶段 1
 
-- 链上测试覆盖权限、状态迁移、边界与 retry 上限
+- 链上测试覆盖权限、状态迁移、边界、retry 上限、draft 与 batch 新增流程
 - 现有主流程测试继续通过
 
 ### 阶段 2
@@ -242,6 +259,7 @@
 
 - Draft 输出符合 schema
 - 无人工确认不可进入执行路径
+- 链上 `create_draft_intent -> submit_draft_intent` 状态迁移可用
 
 ### 阶段 6
 

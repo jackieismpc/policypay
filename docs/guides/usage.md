@@ -2,7 +2,7 @@
 
 本文档描述当前仓库已经落地的完整可用路径：
 
-- 链上 program（Policy + PaymentIntent）
+- 链上 program（Policy + PaymentIntent + BatchIntent）
 - Control Plane（单笔/批量编排 + 审计）
 - Relayer（单笔/批量执行 + 确认）
 - Indexer（时间线写入与查询）
@@ -58,6 +58,26 @@ yarn run dev:dashboard
 export POLICYPAY_STORAGE_DRIVER=json
 ```
 
+### 4.1 链上新增能力（Draft + BatchIntent）
+
+单笔指令新增：
+
+- `create_draft_intent`
+- `submit_draft_intent`
+
+批量指令新增：
+
+- `create_batch_intent`
+- `add_batch_item`
+- `submit_batch_for_approval`
+- `approve_batch_intent`
+- `cancel_batch_intent`
+
+状态机：
+
+- 单笔：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+- 批量：`Draft -> PendingApproval -> Approved | Cancelled`
+
 ## 5. Control Plane
 
 默认地址：`http://127.0.0.1:24010`
@@ -84,6 +104,11 @@ export POLICYPAY_STORAGE_DRIVER=json
 - `POST /intents/batch/approve`
   - `intentIds`: intent id 列表
   - `approvalDigest` 可选（默认 32 字节全 0）
+
+说明：
+
+- 当前 Control Plane 的批量接口默认兼容旧模式（循环调用 `create_intent` / `approve_intent`）。
+- 链上 `BatchIntent` 已可用，后续会逐步接入为可选编排路径。
 
 ## 6. Relayer
 

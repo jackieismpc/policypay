@@ -14,14 +14,23 @@ PolicyPay 是一个面向团队、企业和 AI Agent 的稳定币支付操作层
 - 已实现链上指令：
   - `create_policy`
   - `create_intent`
+  - `create_draft_intent`
+  - `submit_draft_intent`
+  - `create_batch_intent`
+  - `add_batch_item`
+  - `submit_batch_for_approval`
+  - `approve_batch_intent`
+  - `cancel_batch_intent`
   - `approve_intent`
   - `execute_intent`
   - `settle_intent`
   - `retry_intent`
   - `cancel_intent`
 - 已有 Anchor 测试：`tests/policy_pay.ts`
-- 链上最小状态流：
-  - `PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+- 链上单笔状态流：
+  - `Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
+- 链上批量状态流：
+  - `Draft -> PendingApproval -> Approved | Cancelled`
 - 已落地离链模块：
   - Control Plane MVP
   - Relayer MVP
@@ -39,8 +48,7 @@ PolicyPay 是一个面向团队、企业和 AI Agent 的稳定币支付操作层
 
 ### 当前缺口
 
-- `IntentStatus` 中虽然有 `Draft`，但链上尚未落地 Draft 流程
-- 批量 intent 链上账户模型尚未实现（当前为 control-plane 编排批量）
+- Control Plane 当前批量编排仍默认走多次 `create_intent` 调用，尚未切到链上 `BatchIntent` 指令编排
 - 仍需增加更完整的端到端回归测试（多服务并行 + 重试场景）
 - 最终演示视频仍需按 `demo/DEMO_SCRIPT.md` 录制
 
@@ -127,6 +135,6 @@ export POLICYPAY_STORAGE_DRIVER=json
 
 ## 下一步优先事项
 
-1. 评估并落地链上 batch 账户模型
-2. 增加跨服务端到端回归测试
+1. 为 Control Plane 增加链上 `Draft` / `BatchIntent` 编排入口
+2. 增加跨服务端到端回归测试（并发与故障恢复）
 3. 完成最终产品 demo 视频并归档演示材料
