@@ -6,7 +6,7 @@ import {
   type ExecutionTask,
   RelayerService,
 } from "./service";
-import { RelayerStore } from "./store";
+import { createRelayerStore } from "./store";
 
 const ensureObject = (
   value: unknown,
@@ -92,7 +92,7 @@ const parseBatchExecutionInput = (value: unknown) => {
 
 export const createRelayerApp = () => {
   const config = relayerConfig();
-  const store = new RelayerStore(config.storePath);
+  const store = createRelayerStore(config);
   const service = new RelayerService(store);
   const app = express();
 

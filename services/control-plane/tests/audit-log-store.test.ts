@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import test from "node:test";
 
-import { AuditLogStore } from "../src/audit-log-store";
+import { AuditLogStore, SqliteAuditLogStore } from "../src/audit-log-store";
 import { buildAuditEntry } from "../src/types";
 
 test("audit log store appends and lists entries", () => {
@@ -30,4 +30,29 @@ test("audit log store appends and lists entries", () => {
   assert.equal(items[1].status, "requested");
 
   fs.rmSync(filePath, { force: true });
+});
+
+test("sqlite audit log store appends and lists entries", () => {
+  const sqlitePath = path.join(
+    os.tmpdir(),
+    `policy-pay-audit-${Date.now()}.sqlite`
+  );
+  const store = new SqliteAuditLogStore(sqlitePath);
+
+  const requested = buildAuditEntry("create_intent", "requested", {
+    intentId: 11,
+  });
+  const failed = buildAuditEntry("create_intent", "failed", {
+    error: "simulated failure",
+  });
+
+  store.append(requested);
+  store.append(failed);
+
+  const items = store.list();
+  assert.equal(items.length, 2);
+  assert.equal(items[0].status, "failed");
+  assert.equal(items[1].status, "requested");
+
+  fs.rmSync(sqlitePath, { force: true });
 });

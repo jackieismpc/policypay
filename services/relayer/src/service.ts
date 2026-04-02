@@ -1,4 +1,4 @@
-import { RelayerStore } from "./store";
+import type { RelayerStoreLike } from "./store";
 
 export type ExecutionTask = {
   policy: string;
@@ -18,7 +18,7 @@ export type BatchExecutionResult = {
 };
 
 export class RelayerService {
-  constructor(private readonly store: RelayerStore) {}
+  constructor(private readonly store: RelayerStoreLike) {}
 
   async process(task: ExecutionTask) {
     const timestamp = new Date().toISOString();

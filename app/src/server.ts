@@ -1,11 +1,11 @@
 import express from "express";
 
 const app = express();
-const port = Number(process.env.DASHBOARD_PORT ?? 4030);
+const port = Number(process.env.DASHBOARD_PORT ?? 24040);
 const controlPlaneBaseUrl =
-  process.env.CONTROL_PLANE_BASE_URL ?? "http://127.0.0.1:4010";
-const relayerBaseUrl = process.env.RELAYER_BASE_URL ?? "http://127.0.0.1:4020";
-const indexerBaseUrl = process.env.INDEXER_BASE_URL ?? "http://127.0.0.1:4040";
+  process.env.CONTROL_PLANE_BASE_URL ?? "http://127.0.0.1:24010";
+const relayerBaseUrl = process.env.RELAYER_BASE_URL ?? "http://127.0.0.1:24020";
+const indexerBaseUrl = process.env.INDEXER_BASE_URL ?? "http://127.0.0.1:24030";
 
 const dashboardPage = `<!doctype html>
 <html lang="zh-CN">

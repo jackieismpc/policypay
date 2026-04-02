@@ -13,6 +13,8 @@ const createTestConfig = (auditLogPath: string): ControlPlaneConfig => ({
   walletPath: path.join(process.cwd(), "wallets/localnet.json"),
   idlPath: path.join(process.cwd(), "target/idl/policy_pay.json"),
   auditLogPath,
+  sqlitePath: path.join(path.dirname(auditLogPath), "policypay.sqlite"),
+  storageDriver: "json",
   port: 0,
 });
 

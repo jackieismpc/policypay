@@ -5,7 +5,7 @@ import path from "path";
 import test from "node:test";
 
 import { RelayerService } from "../src/service";
-import { RelayerStore } from "../src/store";
+import { RelayerStore, SqliteRelayerStore } from "../src/store";
 
 test("relayer service records failed and confirmed executions", async () => {
   const filePath = path.join(
@@ -38,6 +38,31 @@ test("relayer service records failed and confirmed executions", async () => {
   assert.equal(confirmed.status, "confirmed");
 
   fs.rmSync(filePath, { force: true });
+});
+
+test("relayer service works with sqlite store", async () => {
+  const sqlitePath = path.join(
+    os.tmpdir(),
+    `policy-pay-relayer-sqlite-${Date.now()}.sqlite`
+  );
+  const service = new RelayerService(new SqliteRelayerStore(sqlitePath));
+
+  const submitted = await service.process({
+    policy: "policy-1",
+    intentId: 88,
+    paymentIntent: "intent-pda-88",
+  });
+  assert.equal(submitted.status, "submitted");
+
+  const confirmed = await service.confirm(88);
+  assert.equal(confirmed.status, "confirmed");
+
+  const items = service.list();
+  assert.equal(items.length, 1);
+  assert.equal(items[0].intentId, 88);
+  assert.equal(items[0].status, "confirmed");
+
+  fs.rmSync(sqlitePath, { force: true });
 });
 
 test("relayer service processes batch with continue-on-error mode", async () => {

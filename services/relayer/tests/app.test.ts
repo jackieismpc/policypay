@@ -35,10 +35,14 @@ test("relayer app supports batch execution and filtering", async () => {
   const tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "policy-pay-relayer-app-")
   );
-  const storePath = path.join(tempDir, "records.json");
-  const previousStorePath = process.env.RELAYER_STORE_PATH;
+  const sqlitePath = path.join(tempDir, "policypay.sqlite");
+  const previousSqlitePath = process.env.RELAYER_SQLITE_PATH;
+  const previousStorageDriver = process.env.RELAYER_STORAGE_DRIVER;
+  const previousGlobalStorageDriver = process.env.POLICYPAY_STORAGE_DRIVER;
 
-  process.env.RELAYER_STORE_PATH = storePath;
+  process.env.RELAYER_SQLITE_PATH = sqlitePath;
+  process.env.RELAYER_STORAGE_DRIVER = "sqlite";
+  delete process.env.POLICYPAY_STORAGE_DRIVER;
 
   const app = createRelayerApp();
 
@@ -87,10 +91,22 @@ test("relayer app supports batch execution and filtering", async () => {
     assert.equal(failedJson.items[0].status, "failed");
   });
 
-  if (previousStorePath === undefined) {
-    delete process.env.RELAYER_STORE_PATH;
+  if (previousSqlitePath === undefined) {
+    delete process.env.RELAYER_SQLITE_PATH;
   } else {
-    process.env.RELAYER_STORE_PATH = previousStorePath;
+    process.env.RELAYER_SQLITE_PATH = previousSqlitePath;
+  }
+
+  if (previousStorageDriver === undefined) {
+    delete process.env.RELAYER_STORAGE_DRIVER;
+  } else {
+    process.env.RELAYER_STORAGE_DRIVER = previousStorageDriver;
+  }
+
+  if (previousGlobalStorageDriver === undefined) {
+    delete process.env.POLICYPAY_STORAGE_DRIVER;
+  } else {
+    process.env.POLICYPAY_STORAGE_DRIVER = previousGlobalStorageDriver;
   }
 
   fs.rmSync(tempDir, { recursive: true, force: true });

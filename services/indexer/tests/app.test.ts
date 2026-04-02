@@ -33,10 +33,14 @@ const withServer = async (
 
 test("indexer app records and queries timeline entries", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "policy-pay-indexer-"));
-  const timelinePath = path.join(tempDir, "timeline.json");
-  const originalTimelinePath = process.env.INDEXER_TIMELINE_PATH;
+  const sqlitePath = path.join(tempDir, "policypay.sqlite");
+  const previousSqlitePath = process.env.INDEXER_SQLITE_PATH;
+  const previousStorageDriver = process.env.INDEXER_STORAGE_DRIVER;
+  const previousGlobalStorageDriver = process.env.POLICYPAY_STORAGE_DRIVER;
 
-  process.env.INDEXER_TIMELINE_PATH = timelinePath;
+  process.env.INDEXER_SQLITE_PATH = sqlitePath;
+  process.env.INDEXER_STORAGE_DRIVER = "sqlite";
+  delete process.env.POLICYPAY_STORAGE_DRIVER;
 
   const app = createIndexerApp();
 
@@ -91,10 +95,22 @@ test("indexer app records and queries timeline entries", async () => {
     assert.equal(filteredJson.items[0].source, "chain");
   });
 
-  if (originalTimelinePath === undefined) {
-    delete process.env.INDEXER_TIMELINE_PATH;
+  if (previousSqlitePath === undefined) {
+    delete process.env.INDEXER_SQLITE_PATH;
   } else {
-    process.env.INDEXER_TIMELINE_PATH = originalTimelinePath;
+    process.env.INDEXER_SQLITE_PATH = previousSqlitePath;
+  }
+
+  if (previousStorageDriver === undefined) {
+    delete process.env.INDEXER_STORAGE_DRIVER;
+  } else {
+    process.env.INDEXER_STORAGE_DRIVER = previousStorageDriver;
+  }
+
+  if (previousGlobalStorageDriver === undefined) {
+    delete process.env.POLICYPAY_STORAGE_DRIVER;
+  } else {
+    process.env.POLICYPAY_STORAGE_DRIVER = previousGlobalStorageDriver;
   }
 
   fs.rmSync(tempDir, { recursive: true, force: true });

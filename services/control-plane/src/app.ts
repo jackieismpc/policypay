@@ -1,6 +1,6 @@
 import express from "express";
 
-import { AuditLogStore } from "./audit-log-store";
+import { type AuditLogStoreLike, createAuditLogStore } from "./audit-log-store";
 import type { ControlPlaneConfig } from "./config";
 import { defaultConfig } from "./config";
 import { PolicyPayClient } from "./policy-pay-client";
@@ -54,7 +54,7 @@ type PolicyPayClientLike = Pick<
 
 type AppDependencies = {
   client?: PolicyPayClientLike;
-  auditLogStore?: AuditLogStore;
+  auditLogStore?: AuditLogStoreLike;
 };
 
 const ensureObject = (
@@ -269,7 +269,7 @@ export const createApp = (
 ) => {
   const app = express();
   const auditLogStore =
-    dependencies.auditLogStore ?? new AuditLogStore(config.auditLogPath);
+    dependencies.auditLogStore ?? createAuditLogStore(config);
   const client = dependencies.client ?? new PolicyPayClient(config);
 
   app.use(express.json());

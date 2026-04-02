@@ -1,7 +1,7 @@
-import { TimelineStore } from "./timeline-store";
+import type { TimelineStoreLike } from "./timeline-store";
 
 export class IndexerService {
-  constructor(private readonly store: TimelineStore) {}
+  constructor(private readonly store: TimelineStoreLike) {}
 
   recordChainStatus(
     intentId: number,

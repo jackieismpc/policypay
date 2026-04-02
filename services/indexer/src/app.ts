@@ -2,7 +2,7 @@ import express from "express";
 
 import { indexerConfig } from "./config";
 import { IndexerService } from "./service";
-import { TimelineStore } from "./timeline-store";
+import { createTimelineStore } from "./timeline-store";
 
 const parseIntentId = (value: unknown, field: string): number => {
   const numeric = Number(value);
@@ -36,7 +36,7 @@ const parseDetails = (value: unknown): Record<string, unknown> => {
 
 export const createIndexerApp = () => {
   const config = indexerConfig();
-  const service = new IndexerService(new TimelineStore(config.timelinePath));
+  const service = new IndexerService(createTimelineStore(config));
   const app = express();
 
   app.use(express.json());
