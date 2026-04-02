@@ -41,11 +41,22 @@ test("dashboard summary endpoint responds", async () => {
   try {
     await waitForServer(port);
     const response = await fetch(`http://127.0.0.1:${port}/api/summary`);
-    const json = (await response.json()) as { ok: boolean; stage: string };
+    const json = (await response.json()) as {
+      ok: boolean;
+      stage: string;
+      counts: {
+        auditLogs: number;
+        executions: number;
+        timeline: number;
+      };
+    };
 
     assert.equal(response.status, 200);
     assert.equal(json.ok, true);
-    assert.equal(json.stage, "dashboard-mvp");
+    assert.equal(json.stage, "dashboard-workbench");
+    assert.equal(typeof json.counts.auditLogs, "number");
+    assert.equal(typeof json.counts.executions, "number");
+    assert.equal(typeof json.counts.timeline, "number");
   } finally {
     child.kill();
   }

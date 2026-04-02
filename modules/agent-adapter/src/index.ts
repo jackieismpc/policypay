@@ -8,6 +8,13 @@ export type DraftIntent = {
   warnings: string[];
 };
 
+export type DraftBatchIntent = {
+  source: DraftIntent["source"];
+  items: DraftIntent[];
+  requiresHumanApproval: true;
+  warnings: string[];
+};
+
 const toDraftIntent = (
   source: DraftIntent["source"],
   recipient: string,
@@ -66,7 +73,59 @@ export const parseNaturalLanguageDraft = (input: string): DraftIntent => {
   );
 };
 
-export const assertHumanApprovalRequired = (draft: DraftIntent) => {
+const buildBatchWarnings = (source: DraftIntent["source"], count: number) => [
+  `batch draft generated from ${source} input`,
+  `batch contains ${count} intents`,
+  "human approval required before onchain create_intent",
+];
+
+export const parseCsvBatchDraft = (input: string): DraftBatchIntent => {
+  const lines = input
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    throw new Error("csv batch draft requires at least one non-empty line");
+  }
+
+  const items = lines.map((line) => parseCsvDraft(line));
+
+  return {
+    source: "csv",
+    items,
+    requiresHumanApproval: true,
+    warnings: buildBatchWarnings("csv", items.length),
+  };
+};
+
+export const parseNaturalLanguageBatchDraft = (
+  input: string
+): DraftBatchIntent => {
+  const segments = input
+    .split(";")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length === 0) {
+    throw new Error(
+      "natural language batch draft requires at least one non-empty segment"
+    );
+  }
+
+  const items = segments.map((segment) => parseNaturalLanguageDraft(segment));
+
+  return {
+    source: "natural-language",
+    items,
+    requiresHumanApproval: true,
+    warnings: buildBatchWarnings("natural-language", items.length),
+  };
+};
+
+export const assertHumanApprovalRequired = (
+  draft: DraftIntent | DraftBatchIntent
+) => {
   if (!draft.requiresHumanApproval) {
     throw new Error("draft must require human approval");
   }
