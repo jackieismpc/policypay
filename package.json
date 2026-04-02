@@ -6,6 +6,8 @@
     "test:anchor:ts": "ts-mocha -p ./tsconfig.json -t 1000000 \"tests/policy_pay.ts\"",
     "test:anchor:local": "ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=./wallets/localnet.json yarn run test:anchor:ts",
     "test:anchor:safe": "bash ./scripts/anchor-test-safe.sh",
+    "dev:api-rs": "cargo run -p policypay-api-rs",
+    "test:api-rs": "cargo test -p policypay-api-rs",
     "dev:control-plane": "tsx services/control-plane/src/server.ts",
     "test:control-plane": "tsx --test services/control-plane/tests/**/*.test.ts",
     "dev:relayer": "tsx services/relayer/src/server.ts",

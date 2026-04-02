@@ -1,6 +1,7 @@
 [workspace]
 members = [
-    "programs/*"
+    "programs/*",
+    "services/policypay-api-rs"
 ]
 resolver = "2"
 
