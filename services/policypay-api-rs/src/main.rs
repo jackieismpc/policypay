@@ -28,7 +28,9 @@ use crate::chain_client::{
     AddBatchItemInput, ApproveBatchInput, ApproveIntentInput, BatchActionInput, ChainClient,
     CreateBatchInput, CreateIntentInput, CreatePolicyInput, IntentActionInput,
 };
-use crate::domain::{domain_contract, is_valid_execution_status, is_valid_timeline_source};
+use crate::domain::{
+    domain_contract, is_valid_batch_mode, is_valid_execution_status, is_valid_timeline_source,
+};
 
 const DASHBOARD_HTML: &str = include_str!("../../../app/static/dashboard.html");
 
@@ -50,6 +52,20 @@ struct CreateIntentMinimalInput {
     recipient: String,
     amount: u64,
     memo: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchMinimalItemInput {
+    recipient: String,
+    amount: u64,
+    memo: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateBatchMinimalInput {
+    policy: String,
+    mode: Option<String>,
+    items: Vec<BatchMinimalItemInput>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -200,6 +216,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/intents/:intent_id/cancel", post(cancel_intent))
         .route("/intents/:intent_id/retry", post(retry_intent))
         .route("/batches", post(create_batch_intent_onchain))
+        .route("/batches/minimal", post(create_batch_minimal))
         .route("/batches/:batch_id/items", post(add_batch_item_onchain))
         .route(
             "/batches/:batch_id/submit",
@@ -642,6 +659,7 @@ async fn openapi_spec() -> impl IntoResponse {
             "/intents/{intentId}/cancel": { "post": { "summary": "Cancel intent" } },
             "/intents/{intentId}/retry": { "post": { "summary": "Retry intent" } },
             "/batches": { "post": { "summary": "Create batch intent" } },
+            "/batches/minimal": { "post": { "summary": "Create batch and items with business-minimal fields (auto-generates batchId/intentId/reference)" } },
             "/batches/{batchId}/items": { "post": { "summary": "Add batch item" } },
             "/batches/{batchId}/submit": { "post": { "summary": "Submit batch for approval" } },
             "/batches/{batchId}/approve": { "post": { "summary": "Approve batch intent" } },
@@ -767,6 +785,14 @@ fn generate_intent_id() -> u64 {
     (base << 16) | nonce
 }
 
+fn generate_batch_id() -> u64 {
+    static BATCH_NONCE: AtomicU64 = AtomicU64::new(0);
+    let now_ms = Utc::now().timestamp_millis();
+    let base = if now_ms < 0 { 0_u64 } else { now_ms as u64 };
+    let nonce = BATCH_NONCE.fetch_add(1, Ordering::Relaxed) & 0xFFFF;
+    (base << 16) | nonce
+}
+
 fn generate_reference(intent_id: u64) -> String {
     format!("auto-{intent_id}")
 }
@@ -786,6 +812,16 @@ async fn create_intent_minimal(
             let input: CreateIntentMinimalInput = serde_json::from_value(body)
                 .map_err(|e| anyhow!("invalid create intent minimal payload: {e}"))?;
 
+            let policy = input.policy.trim().to_string();
+            if policy.is_empty() {
+                return Err(anyhow!("policy must be a non-empty string"));
+            }
+
+            let recipient = input.recipient.trim().to_string();
+            if recipient.is_empty() {
+                return Err(anyhow!("recipient must be a non-empty string"));
+            }
+
             if input.amount == 0 {
                 return Err(anyhow!("amount must be a positive integer"));
             }
@@ -795,9 +831,9 @@ async fn create_intent_minimal(
             let reference = generate_reference(intent_id);
 
             let value = chain.create_intent(CreateIntentInput {
-                policy: input.policy,
+                policy,
                 intent_id,
-                recipient: input.recipient,
+                recipient,
                 amount: input.amount,
                 memo: Some(memo.clone()),
                 reference: Some(reference.clone()),
@@ -957,6 +993,141 @@ async fn create_batch_intent_onchain(
                 .map_err(|e| anyhow!("invalid create batch payload: {e}"))?;
             let value = chain.create_batch_intent(input)?;
             Ok((StatusCode::CREATED, value))
+        },
+    )
+    .await
+}
+
+async fn create_batch_minimal(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Response {
+    onchain_write_with_audit_and_idempotency(
+        state,
+        headers,
+        "create_batch_minimal",
+        "/batches/minimal".to_string(),
+        payload,
+        move |chain, body| {
+            let payload: CreateBatchMinimalInput = serde_json::from_value(body)
+                .map_err(|e| anyhow!("invalid create batch minimal payload: {e}"))?;
+
+            let policy = payload.policy.trim().to_string();
+            if policy.is_empty() {
+                return Err(anyhow!("policy must be a non-empty string"));
+            }
+
+            if payload.items.is_empty() {
+                return Err(anyhow!("items must be a non-empty array"));
+            }
+
+            let mode = payload.mode.unwrap_or_else(|| "abort-on-error".to_string());
+            if !is_valid_batch_mode(&mode) {
+                let allowed = domain_contract().batch_modes.join(", ");
+                return Err(anyhow!("mode must be one of: {allowed}"));
+            }
+
+            let batch_id = generate_batch_id();
+            let create_value = chain.create_batch_intent(CreateBatchInput {
+                policy: policy.clone(),
+                batch_id,
+                mode: Some(mode.clone()),
+            })?;
+
+            let mut results = Vec::with_capacity(payload.items.len());
+
+            for (index, item) in payload.items.into_iter().enumerate() {
+                let line = index + 1;
+                let recipient = item.recipient.trim().to_string();
+                if recipient.is_empty() {
+                    results.push(json!({
+                        "line": line,
+                        "status": "failed",
+                        "error": "recipient must be a non-empty string"
+                    }));
+                    if mode == "abort-on-error" {
+                        break;
+                    }
+                    continue;
+                }
+
+                if item.amount == 0 {
+                    results.push(json!({
+                        "line": line,
+                        "status": "failed",
+                        "error": "amount must be a positive integer"
+                    }));
+                    if mode == "abort-on-error" {
+                        break;
+                    }
+                    continue;
+                }
+
+                let intent_id = generate_intent_id();
+                let reference = generate_reference(intent_id);
+                let memo = item.memo.unwrap_or_default();
+                match chain.add_batch_item(AddBatchItemInput {
+                    policy: policy.clone(),
+                    batch_id,
+                    intent_id,
+                    recipient,
+                    amount: item.amount,
+                    memo: Some(memo),
+                    reference: Some(reference.clone()),
+                }) {
+                    Ok(value) => {
+                        results.push(json!({
+                            "line": line,
+                            "status": "succeeded",
+                            "intentId": intent_id,
+                            "reference": reference,
+                            "signature": value.get("signature"),
+                        }));
+                    }
+                    Err(error) => {
+                        results.push(json!({
+                            "line": line,
+                            "status": "failed",
+                            "intentId": intent_id,
+                            "reference": reference,
+                            "error": error.to_string(),
+                        }));
+
+                        if mode == "abort-on-error" {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let succeeded = results
+                .iter()
+                .filter(|item| item.get("status") == Some(&json!("succeeded")))
+                .count();
+            let failed = results.len().saturating_sub(succeeded);
+
+            let response = json!({
+                "policy": policy,
+                "batchId": batch_id,
+                "mode": mode,
+                "batchIntent": create_value.get("batchIntent"),
+                "signature": create_value.get("signature"),
+                "summary": {
+                    "total": results.len(),
+                    "succeeded": succeeded,
+                    "failed": failed
+                },
+                "results": results
+            });
+
+            let status = if failed == 0 {
+                StatusCode::CREATED
+            } else {
+                StatusCode::MULTI_STATUS
+            };
+
+            Ok((status, response))
         },
     )
     .await
@@ -1593,6 +1764,13 @@ mod tests {
         let reference = generate_reference(first);
         assert!(reference.starts_with("auto-"));
         assert!(reference.contains(&first.to_string()));
+    }
+
+    #[test]
+    fn generated_batch_id_is_monotonic_like_intent_id() {
+        let first = generate_batch_id();
+        let second = generate_batch_id();
+        assert!(second >= first);
     }
 
     #[test]

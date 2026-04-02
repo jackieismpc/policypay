@@ -50,3 +50,10 @@ pub fn is_valid_timeline_source(source: &str) -> bool {
         .iter()
         .any(|value| value == source)
 }
+
+pub fn is_valid_batch_mode(mode: &str) -> bool {
+    domain_contract()
+        .batch_modes
+        .iter()
+        .any(|value| value == mode)
+}
