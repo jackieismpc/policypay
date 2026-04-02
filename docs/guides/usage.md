@@ -32,25 +32,51 @@ yarn run dev:indexer
 yarn run dev:dashboard
 ```
 
-## 3. Control Plane
+## 3. 默认地址与端口（20000+）
 
-默认地址：`http://127.0.0.1:4010`
+- Control Plane: `http://127.0.0.1:24010`
+- Relayer: `http://127.0.0.1:24020`
+- Indexer: `http://127.0.0.1:24030`
+- Dashboard: `http://127.0.0.1:24040`
 
-### 3.1 查询接口
+## 4. 存储配置（模块化）
+
+默认：SQLite
+
+- `POLICYPAY_STORAGE_DRIVER=sqlite`
+- `POLICYPAY_SQLITE_PATH=./data/policypay.sqlite`
+
+按服务覆盖：
+
+- Control Plane: `CONTROL_PLANE_STORAGE_DRIVER` / `CONTROL_PLANE_SQLITE_PATH`
+- Relayer: `RELAYER_STORAGE_DRIVER` / `RELAYER_SQLITE_PATH`
+- Indexer: `INDEXER_STORAGE_DRIVER` / `INDEXER_SQLITE_PATH`
+
+切换 JSON：
+
+```bash
+export POLICYPAY_STORAGE_DRIVER=json
+```
+
+## 5. Control Plane
+
+默认地址：`http://127.0.0.1:24010`
+
+### 5.1 查询接口
 
 - `GET /health`
 - `GET /audit-logs`
 - `GET /policies/:mint`
 - `GET /policies/:policy/intents/:intentId`
 
-### 3.2 单笔编排
+### 5.2 单笔编排
 
 - `POST /intents`
 - `POST /intents/:intentId/approve`
 - `POST /intents/:intentId/cancel`
 - `POST /intents/:intentId/retry`
 
-### 3.3 批量编排
+### 5.3 批量编排
 
 - `POST /intents/batch`
   - `mode`: `abort-on-error` 或 `continue-on-error`
@@ -59,18 +85,18 @@ yarn run dev:dashboard
   - `intentIds`: intent id 列表
   - `approvalDigest` 可选（默认 32 字节全 0）
 
-## 4. Relayer
+## 6. Relayer
 
-默认地址：`http://127.0.0.1:4020`
+默认地址：`http://127.0.0.1:24020`
 
-### 4.1 查询接口
+### 6.1 查询接口
 
 - `GET /health`
 - `GET /executions`
 - `GET /executions?status=failed|submitted|confirmed`
 - `GET /executions/:intentId`
 
-### 4.2 执行接口
+### 6.2 执行接口
 
 - `POST /executions`
 - `POST /executions/batch`
@@ -80,25 +106,25 @@ yarn run dev:dashboard
 
 - `mode`: `abort-on-error` / `continue-on-error`
 
-## 5. Indexer
+## 7. Indexer
 
-默认地址：`http://127.0.0.1:4040`
+默认地址：`http://127.0.0.1:24030`
 
-### 5.1 查询接口
+### 7.1 查询接口
 
 - `GET /health`
 - `GET /timeline`
 - `GET /timeline?intentId=101`
 - `GET /timeline?intentId=101&source=chain`
 
-### 5.2 写入接口
+### 7.2 写入接口
 
 - `POST /timeline/chain`
 - `POST /timeline/relayer`
 
-## 6. Dashboard
+## 8. Dashboard
 
-默认地址：`http://127.0.0.1:4030`
+默认地址：`http://127.0.0.1:24040`
 
 工作台能力：
 
@@ -117,7 +143,7 @@ Dashboard 内部代理接口：
 - `POST /api/intents/batch`
 - `POST /api/intents/batch/approve`
 
-## 7. Agent Adapter
+## 9. Agent Adapter
 
 模块路径：`modules/agent-adapter/`
 
@@ -131,7 +157,7 @@ Dashboard 内部代理接口：
 
 所有输出都包含 `requiresHumanApproval: true`。
 
-## 8. 测试建议顺序
+## 10. 测试建议顺序
 
 ```bash
 yarn run test:control-plane

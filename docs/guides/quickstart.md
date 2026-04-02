@@ -2,7 +2,7 @@
 
 ## 适用范围
 
-本指南描述当前仓库已经落地的最小可运行闭环：
+本指南覆盖当前仓库已落地的最小可运行闭环：
 
 - Anchor onchain program
 - Control Plane MVP
@@ -53,6 +53,7 @@ yarn run test:relayer
 yarn run test:indexer
 yarn run test:dashboard
 yarn run test:agent-adapter
+
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test
@@ -72,7 +73,7 @@ anchor build
 yarn run dev:control-plane
 ```
 
-默认端口：`4010`
+默认端口：`24010`
 
 ### Relayer
 
@@ -80,7 +81,7 @@ yarn run dev:control-plane
 yarn run dev:relayer
 ```
 
-默认端口：`4020`
+默认端口：`24020`
 
 ### Indexer
 
@@ -88,7 +89,7 @@ yarn run dev:relayer
 yarn run dev:indexer
 ```
 
-默认端口：`4040`
+默认端口：`24030`
 
 ### Dashboard
 
@@ -96,11 +97,31 @@ yarn run dev:indexer
 yarn run dev:dashboard
 ```
 
-默认端口：`4030`
+默认端口：`24040`
 
-## 7. 当前可用接口
+## 7. 存储配置（默认 SQLite）
+
+默认配置：
+
+- `POLICYPAY_STORAGE_DRIVER=sqlite`
+- `POLICYPAY_SQLITE_PATH=./data/policypay.sqlite`
+
+按服务覆盖：
+
+- `CONTROL_PLANE_STORAGE_DRIVER` / `CONTROL_PLANE_SQLITE_PATH`
+- `RELAYER_STORAGE_DRIVER` / `RELAYER_SQLITE_PATH`
+- `INDEXER_STORAGE_DRIVER` / `INDEXER_SQLITE_PATH`
+
+回退 JSON 存储：
+
+```bash
+export POLICYPAY_STORAGE_DRIVER=json
+```
+
+## 8. 当前可用接口
 
 ### Dashboard
+
 - `GET /`
 - `GET /api/summary`
 - `GET /api/audit-logs`
@@ -111,6 +132,7 @@ yarn run dev:dashboard
 - `POST /api/intents/batch/approve`
 
 ### Control Plane
+
 - `GET /health`
 - `GET /audit-logs`
 - `GET /policies/:mint`
@@ -123,6 +145,7 @@ yarn run dev:dashboard
 - `POST /intents/:intentId/retry`
 
 ### Relayer
+
 - `GET /health`
 - `GET /executions`
 - `GET /executions?status=failed|submitted|confirmed`
@@ -132,6 +155,7 @@ yarn run dev:dashboard
 - `POST /executions/:intentId/confirm`
 
 ### Indexer
+
 - `GET /health`
 - `GET /timeline`
 - `GET /timeline?intentId=<id>`
@@ -139,7 +163,7 @@ yarn run dev:dashboard
 - `POST /timeline/chain`
 - `POST /timeline/relayer`
 
-## 8. Agent Draft
+## 9. Agent Draft
 
 当前支持单笔与批量两类 draft 输入：
 

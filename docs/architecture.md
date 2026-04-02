@@ -60,7 +60,7 @@
 
 - batch intent 链上账户模型
 - 链上 Draft 流程
-- 更正式的持久化层
+- 更高阶存储后端（如 PostgreSQL）与迁移体系
 - 最终 demo 视频交付物
 
 说明：`IntentStatus` 中虽然已有 `Draft`，但链上尚未提供 Draft 的可达流程，因此当前仍建议将 Draft 先作为离链概念处理。
@@ -183,7 +183,7 @@
 - 批量执行记录
 - 失败原因记录与过滤查询
 - 确认回写
-- 本地 JSON 持久化
+- 模块化持久化（默认 SQLite，可切换 JSON）
 
 ### 4.6 Dashboard Module
 
@@ -241,7 +241,7 @@
 
 - 区分 `chain` / `relayer` 来源的时间线记录
 - 时间线 HTTP 查询接口（按 `intentId` / `source` 过滤）
-- 本地 JSON 持久化
+- 模块化持久化（默认 SQLite，可切换 JSON）
 
 ## 5. 模块接口契约（可替换点）
 
@@ -305,7 +305,7 @@ EventSink
 - Relayer 提供按状态过滤查询
 - Indexer 提供时间线记录，区分链上状态与 relayer 状态来源
 - Indexer 提供时间线查询与过滤接口
-- 两者当前先基于本地 JSON 存储，确保单笔 intent 演示链路完整
+- 两者当前使用模块化存储，默认 SQLite（可按环境切换 JSON）
 
 ### 6.3 当前 Dashboard MVP 范围
 

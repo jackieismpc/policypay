@@ -1,9 +1,15 @@
 # PolicyPay Examples
 
+## 默认地址
+
+- Control Plane: `http://127.0.0.1:24010`
+- Relayer: `http://127.0.0.1:24020`
+- Indexer: `http://127.0.0.1:24030`
+
 ## 示例 1：Control Plane 创建单笔 intent
 
 ```bash
-curl -X POST http://127.0.0.1:4010/intents \
+curl -X POST http://127.0.0.1:24010/intents \
   -H 'Content-Type: application/json' \
   -d '{
     "policy": "<policy-pda>",
@@ -18,7 +24,7 @@ curl -X POST http://127.0.0.1:4010/intents \
 ## 示例 2：Control Plane 批量创建 intent
 
 ```bash
-curl -X POST http://127.0.0.1:4010/intents/batch \
+curl -X POST http://127.0.0.1:24010/intents/batch \
   -H 'Content-Type: application/json' \
   -d '{
     "policy": "<policy-pda>",
@@ -45,7 +51,7 @@ curl -X POST http://127.0.0.1:4010/intents/batch \
 ## 示例 3：Control Plane 批量审批
 
 ```bash
-curl -X POST http://127.0.0.1:4010/intents/batch/approve \
+curl -X POST http://127.0.0.1:24010/intents/batch/approve \
   -H 'Content-Type: application/json' \
   -d '{
     "policy": "<policy-pda>",
@@ -58,7 +64,7 @@ curl -X POST http://127.0.0.1:4010/intents/batch/approve \
 ## 示例 4：Relayer 批量执行
 
 ```bash
-curl -X POST http://127.0.0.1:4020/executions/batch \
+curl -X POST http://127.0.0.1:24020/executions/batch \
   -H 'Content-Type: application/json' \
   -d '{
     "mode": "continue-on-error",
@@ -82,7 +88,7 @@ curl -X POST http://127.0.0.1:4020/executions/batch \
 ## 示例 5：Indexer 写入和查询时间线
 
 ```bash
-curl -X POST http://127.0.0.1:4040/timeline/chain \
+curl -X POST http://127.0.0.1:24030/timeline/chain \
   -H 'Content-Type: application/json' \
   -d '{
     "intentId": 201,
@@ -90,7 +96,7 @@ curl -X POST http://127.0.0.1:4040/timeline/chain \
     "details": {"policy": "<policy-pda>"}
   }'
 
-curl -X POST http://127.0.0.1:4040/timeline/relayer \
+curl -X POST http://127.0.0.1:24030/timeline/relayer \
   -H 'Content-Type: application/json' \
   -d '{
     "intentId": 201,
@@ -98,7 +104,7 @@ curl -X POST http://127.0.0.1:4040/timeline/relayer \
     "details": {"signature": "sig-201"}
   }'
 
-curl 'http://127.0.0.1:4040/timeline?intentId=201'
+curl 'http://127.0.0.1:24030/timeline?intentId=201'
 ```
 
 ## 示例 6：Agent Adapter CSV draft（单笔）
