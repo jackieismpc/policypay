@@ -117,7 +117,24 @@
 
 说明：`approvalDigest` 可省略，默认 32 字节全 0。
 
-### 4.6 取消 / 重试
+### 4.6 执行真实结算
+
+`POST /api/v1/intents/:intentId/execute`
+
+```json
+{
+  "policy": "<policy-pda>"
+}
+```
+
+说明：
+
+- 该接口要求 intent 已处于 `Approved`
+- 当前执行的是真实经典 SPL token 转账，不是模拟执行
+- 服务端会校验 treasury ATA 余额、收款人 ATA 是否存在，并在需要时自动创建
+- 成功后会同步写入链上状态、`GET /api/v1/executions/:intentId` 与 `GET /api/v1/timeline`
+
+### 4.7 取消 / 重试
 
 - `POST /api/v1/intents/:intentId/cancel`
 - `POST /api/v1/intents/:intentId/retry`
@@ -218,12 +235,8 @@
 - `GET /api/v1/domain/contract`
 - `GET /api/v1/executions`
 - `GET /api/v1/executions/:intentId`
-- `POST /api/v1/executions`
-- `POST /api/v1/executions/batch`
-- `POST /api/v1/executions/:intentId/confirm`
 - `GET /api/v1/timeline`
-- `POST /api/v1/timeline/chain`
-- `POST /api/v1/timeline/relayer`
+- `POST /api/v1/intents/:intentId/execute`
 
 ## 7. Dashboard 使用说明
 
@@ -233,6 +246,7 @@ Dashboard 地址：`http://127.0.0.1:24100/`
 - 批量创建支持“每行一条”输入：
   - `收款地址,金额,备注`（备注可省略）
 - 业务批量创建默认使用最小输入接口 `/api/v1/batches/minimal`，由后端自动生成技术字段
+- 单笔操作区已支持创建后直接审批、执行和查询
 - 顶部支持可选 API Key 输入（用于对接启用鉴权的环境）
 
 ## 8. 测试建议顺序

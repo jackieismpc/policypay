@@ -76,25 +76,6 @@ struct ApproveOnlyInput {
 }
 
 #[derive(Debug, Deserialize)]
-struct ExecutionTask {
-    policy: String,
-    #[serde(rename = "intentId")]
-    intent_id: i64,
-    #[serde(rename = "paymentIntent")]
-    payment_intent: String,
-    #[serde(rename = "shouldFail")]
-    should_fail: Option<bool>,
-    #[serde(rename = "failureReason")]
-    failure_reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct BatchExecutionInput {
-    mode: Option<String>,
-    items: Vec<ExecutionTask>,
-}
-
-#[derive(Debug, Deserialize)]
 struct TimelineWriteInput {
     #[serde(rename = "intentId")]
     intent_id: i64,
@@ -215,6 +196,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/intents/:intent_id/approve", post(approve_intent))
         .route("/intents/:intent_id/cancel", post(cancel_intent))
         .route("/intents/:intent_id/retry", post(retry_intent))
+        .route("/intents/:intent_id/execute", post(execute_intent_onchain))
         .route("/batches", post(create_batch_intent_onchain))
         .route("/batches/minimal", post(create_batch_minimal))
         .route("/batches/:batch_id/items", post(add_batch_item_onchain))
@@ -230,13 +212,9 @@ async fn main() -> anyhow::Result<()> {
             "/batches/:batch_id/cancel",
             post(cancel_batch_intent_onchain),
         )
-        .route("/executions", get(list_executions).post(create_execution))
-        .route("/executions/batch", post(create_executions_batch))
+        .route("/executions", get(list_executions))
         .route("/executions/:intent_id", get(get_execution_by_intent))
-        .route("/executions/:intent_id/confirm", post(confirm_execution))
-        .route("/timeline", get(list_timeline))
-        .route("/timeline/chain", post(write_timeline_chain))
-        .route("/timeline/relayer", post(write_timeline_relayer));
+        .route("/timeline", get(list_timeline));
 
     let app = Router::new()
         .route("/", get(dashboard_page))
@@ -658,6 +636,7 @@ async fn openapi_spec() -> impl IntoResponse {
             "/intents/{intentId}/approve": { "post": { "summary": "Approve intent" } },
             "/intents/{intentId}/cancel": { "post": { "summary": "Cancel intent" } },
             "/intents/{intentId}/retry": { "post": { "summary": "Retry intent" } },
+            "/intents/{intentId}/execute": { "post": { "summary": "Execute approved intent with a real SPL token transfer on Solana" } },
             "/batches": { "post": { "summary": "Create batch intent" } },
             "/batches/minimal": { "post": { "summary": "Create batch and items with business-minimal fields (auto-generates batchId/intentId/reference)" } },
             "/batches/{batchId}/items": { "post": { "summary": "Add batch item" } },
@@ -666,7 +645,7 @@ async fn openapi_spec() -> impl IntoResponse {
             "/batches/{batchId}/cancel": { "post": { "summary": "Cancel batch intent" } },
             "/audit-logs": { "get": { "summary": "List audit logs" } },
             "/domain/contract": { "get": { "summary": "Domain contract (statuses, events, error codes)" } },
-            "/executions": { "get": { "summary": "List executions" }, "post": { "summary": "Create simulated execution" } },
+            "/executions": { "get": { "summary": "List recorded settlement executions" } },
             "/timeline": { "get": { "summary": "List timeline" } }
         }
     }))
@@ -1231,13 +1210,6 @@ async fn cancel_batch_intent_onchain(
     .await
 }
 
-fn parse_execution_mode(mode: Option<&str>) -> &'static str {
-    match mode {
-        Some("continue-on-error") => "continue-on-error",
-        _ => "abort-on-error",
-    }
-}
-
 async fn upsert_relayer(state: &AppState, record: &RelayerRecord) -> anyhow::Result<()> {
     sqlx::query(
         r#"
@@ -1264,59 +1236,187 @@ async fn upsert_relayer(state: &AppState, record: &RelayerRecord) -> anyhow::Res
     Ok(())
 }
 
-fn validate_execution_task(task: &ExecutionTask) -> Result<(), String> {
-    if task.intent_id < 0 {
-        return Err("intentId must be a non-negative integer".to_string());
+async fn record_execution_success(state: &AppState, intent_id: i64, response: &Value) {
+    let payment_intent = response
+        .get("paymentIntent")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let transfer_signature = response
+        .get("transferSignature")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let settlement_signature = response
+        .get("settlementSignature")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+
+    let record = RelayerRecord {
+        intent_id,
+        payment_intent,
+        status: "confirmed".to_string(),
+        signature: Some(transfer_signature.clone()),
+        failure_reason: None,
+        updated_at: Utc::now().to_rfc3339(),
+    };
+
+    if let Err(error) = upsert_relayer(state, &record).await {
+        error!("record settlement execution failed: {}", error);
     }
-    if task.policy.trim().is_empty() {
-        return Err("policy must be a non-empty string".to_string());
+
+    let submitted_details = json!({
+        "transferSignature": transfer_signature,
+        "settlementSignature": settlement_signature,
+        "mint": response.get("mint").cloned().unwrap_or(Value::Null),
+        "amount": response.get("amount").cloned().unwrap_or(Value::Null),
+        "recipient": response.get("recipient").cloned().unwrap_or(Value::Null),
+        "tokenProgram": response.get("tokenProgram").cloned().unwrap_or(Value::Null),
+        "recipientTokenAccount": response.get("recipientTokenAccount").cloned().unwrap_or(Value::Null),
+        "treasuryTokenAccount": response.get("treasuryTokenAccount").cloned().unwrap_or(Value::Null),
+    });
+    let confirmed_details = json!({
+        "transferSignature": response.get("transferSignature").cloned().unwrap_or(Value::Null),
+        "settlementSignature": response.get("settlementSignature").cloned().unwrap_or(Value::Null),
+        "recipientTokenAccountCreated": response
+            .get("recipientTokenAccountCreated")
+            .cloned()
+            .unwrap_or(Value::Bool(false)),
+    });
+
+    if let Err(error) = append_timeline(
+        state,
+        "chain",
+        TimelineWriteInput {
+            intent_id,
+            status: "submitted".to_string(),
+            details: Some(submitted_details),
+        },
+    )
+    .await
+    {
+        error!("append submitted timeline failed: {}", error);
     }
-    if task.payment_intent.trim().is_empty() {
-        return Err("paymentIntent must be a non-empty string".to_string());
+
+    if let Err(error) = append_timeline(
+        state,
+        "chain",
+        TimelineWriteInput {
+            intent_id,
+            status: "confirmed".to_string(),
+            details: Some(confirmed_details),
+        },
+    )
+    .await
+    {
+        error!("append confirmed timeline failed: {}", error);
     }
-    Ok(())
 }
 
-async fn process_execution_task(
-    state: &AppState,
-    task: &ExecutionTask,
-) -> Result<RelayerRecord, String> {
-    validate_execution_task(task)?;
+async fn execute_intent_onchain(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(intent_id): AxumPath<u64>,
+    Json(payload): Json<Value>,
+) -> Response {
+    if let Some(response) = ensure_write_auth(&state, &headers) {
+        return response;
+    }
 
-    let now = Utc::now().to_rfc3339();
-    let record = if task.should_fail.unwrap_or(false) {
-        RelayerRecord {
-            intent_id: task.intent_id,
-            payment_intent: task.payment_intent.clone(),
-            status: "failed".to_string(),
-            signature: None,
-            failure_reason: Some(
-                task.failure_reason
-                    .clone()
-                    .unwrap_or_else(|| "relayer simulated failure".to_string()),
-            ),
-            updated_at: now,
+    let action = "execute_intent_onchain";
+    let path = format!("/intents/{intent_id}/execute");
+
+    if let Err(error) = append_audit(&state, action, "requested", &payload).await {
+        error!("append requested audit failed: {}", error);
+    }
+
+    let idem_key = idempotency_key(&headers);
+    let req_hash = request_hash("POST", &path, &payload);
+
+    if let Some(key) = &idem_key {
+        match get_idempotent_cached(&state, action, key).await {
+            Ok(Some((cached_hash, cached_status, cached_body))) => {
+                if cached_hash != req_hash {
+                    return json_error(
+                        StatusCode::CONFLICT,
+                        "idempotency key conflict: request payload mismatch",
+                    );
+                }
+
+                let status =
+                    StatusCode::from_u16(cached_status as u16).unwrap_or(StatusCode::BAD_REQUEST);
+                return (status, Json(cached_body)).into_response();
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("idempotency read failed: {error}"),
+                )
+            }
         }
-    } else {
-        RelayerRecord {
-            intent_id: task.intent_id,
-            payment_intent: task.payment_intent.clone(),
-            status: "submitted".to_string(),
-            signature: Some(format!(
-                "relayer-{}-{}",
-                task.intent_id,
-                Utc::now().timestamp_millis()
-            )),
-            failure_reason: None,
-            updated_at: now,
+    }
+
+    let input: PolicyOnlyInput = match serde_json::from_value(payload.clone()) {
+        Ok(input) => input,
+        Err(error) => {
+            let details = json!({ "error": format!("invalid execute intent payload: {error}") });
+            if let Err(log_error) = append_audit(&state, action, "failed", &details).await {
+                error!("append failure audit failed: {}", log_error);
+            }
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                format!("invalid execute intent payload: {error}"),
+            );
         }
     };
 
-    upsert_relayer(state, &record)
-        .await
-        .map_err(|e| format!("upsert relayer record failed: {e}"))?;
+    let chain = state.chain.clone();
+    let policy = input.policy;
 
-    Ok(record)
+    match tokio::task::spawn_blocking(move || {
+        chain.execute_intent_settlement(IntentActionInput { policy, intent_id })
+    })
+    .await
+    {
+        Ok(Ok(resp_body)) => {
+            record_execution_success(&state, intent_id as i64, &resp_body).await;
+
+            if let Err(error) = append_audit(&state, action, "succeeded", &resp_body).await {
+                error!("append completion audit failed: {}", error);
+            }
+
+            if let Some(key) = &idem_key {
+                if let Err(error) = put_idempotent_cached(
+                    &state,
+                    action,
+                    key,
+                    &req_hash,
+                    StatusCode::OK,
+                    &resp_body,
+                )
+                .await
+                {
+                    error!("idempotency cache write failed: {}", error);
+                }
+            }
+
+            (StatusCode::OK, Json(resp_body)).into_response()
+        }
+        Ok(Err(error)) => {
+            let details = json!({ "error": error.to_string() });
+            if let Err(log_error) = append_audit(&state, action, "failed", &details).await {
+                error!("append failure audit failed: {}", log_error);
+            }
+
+            json_error(StatusCode::BAD_REQUEST, error.to_string())
+        }
+        Err(error) => json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("join on write task failed: {error}"),
+        ),
+    }
 }
 
 async fn list_executions(
@@ -1412,148 +1512,6 @@ async fn get_execution_by_intent(
         Err(error) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("get execution failed: {error}"),
-        ),
-    }
-}
-
-async fn create_execution(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(task): Json<ExecutionTask>,
-) -> Response {
-    if let Some(response) = ensure_write_auth(&state, &headers) {
-        return response;
-    }
-
-    match process_execution_task(&state, &task).await {
-        Ok(record) => (StatusCode::CREATED, Json(json!(record))).into_response(),
-        Err(error) => json_error(StatusCode::BAD_REQUEST, error),
-    }
-}
-
-async fn create_executions_batch(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<BatchExecutionInput>,
-) -> Response {
-    if let Some(response) = ensure_write_auth(&state, &headers) {
-        return response;
-    }
-
-    if payload.items.is_empty() {
-        return json_error(StatusCode::BAD_REQUEST, "items must be a non-empty array");
-    }
-
-    let mode = parse_execution_mode(payload.mode.as_deref());
-    let mut results: Vec<Value> = Vec::new();
-
-    for task in &payload.items {
-        match process_execution_task(&state, task).await {
-            Ok(record) => {
-                let status = if record.status == "failed" {
-                    "failed"
-                } else {
-                    "succeeded"
-                };
-                results.push(json!({
-                    "intentId": task.intent_id,
-                    "status": status,
-                    "record": record,
-                    "error": if status == "failed" { record.failure_reason } else { None::<String> }
-                }));
-
-                if status == "failed" && mode == "abort-on-error" {
-                    break;
-                }
-            }
-            Err(error) => {
-                results.push(json!({
-                    "intentId": task.intent_id,
-                    "status": "failed",
-                    "error": error,
-                }));
-
-                if mode == "abort-on-error" {
-                    break;
-                }
-            }
-        }
-    }
-
-    let succeeded = results
-        .iter()
-        .filter(|item| item.get("status") == Some(&json!("succeeded")))
-        .count();
-    let failed = results.len().saturating_sub(succeeded);
-
-    let response = json!({
-        "mode": mode,
-        "total": payload.items.len(),
-        "processed": results.len(),
-        "succeeded": succeeded,
-        "failed": failed,
-        "results": results,
-    });
-
-    let status = if failed == 0 {
-        StatusCode::CREATED
-    } else {
-        StatusCode::MULTI_STATUS
-    };
-
-    (status, Json(response)).into_response()
-}
-
-async fn confirm_execution(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    AxumPath(intent_id): AxumPath<i64>,
-) -> Response {
-    if let Some(response) = ensure_write_auth(&state, &headers) {
-        return response;
-    }
-
-    let row = sqlx::query(
-        r#"
-        SELECT intent_id, payment_intent, status, signature, failure_reason, updated_at
-        FROM relayer_executions
-        WHERE intent_id = ?
-        "#,
-    )
-    .bind(intent_id)
-    .fetch_optional(&state.pool)
-    .await;
-
-    let row = match row {
-        Ok(Some(row)) => row,
-        Ok(None) => {
-            return json_error(
-                StatusCode::NOT_FOUND,
-                format!("intent {intent_id} not found in relayer store"),
-            )
-        }
-        Err(error) => {
-            return json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("confirm lookup failed: {error}"),
-            )
-        }
-    };
-
-    let record = RelayerRecord {
-        intent_id: row.try_get("intent_id").unwrap_or_default(),
-        payment_intent: row.try_get("payment_intent").unwrap_or_default(),
-        status: "confirmed".to_string(),
-        signature: row.try_get("signature").ok(),
-        failure_reason: row.try_get("failure_reason").ok(),
-        updated_at: Utc::now().to_rfc3339(),
-    };
-
-    match upsert_relayer(&state, &record).await {
-        Ok(_) => (StatusCode::OK, Json(json!(record))).into_response(),
-        Err(error) => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("confirm execution failed: {error}"),
         ),
     }
 }
@@ -1675,36 +1633,6 @@ async fn append_timeline(
     Ok(entry)
 }
 
-async fn write_timeline_chain(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<TimelineWriteInput>,
-) -> Response {
-    if let Some(response) = ensure_write_auth(&state, &headers) {
-        return response;
-    }
-
-    match append_timeline(&state, "chain", payload).await {
-        Ok(entry) => (StatusCode::CREATED, Json(entry)).into_response(),
-        Err(error) => json_error(StatusCode::BAD_REQUEST, error),
-    }
-}
-
-async fn write_timeline_relayer(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<TimelineWriteInput>,
-) -> Response {
-    if let Some(response) = ensure_write_auth(&state, &headers) {
-        return response;
-    }
-
-    match append_timeline(&state, "relayer", payload).await {
-        Ok(entry) => (StatusCode::CREATED, Json(entry)).into_response(),
-        Err(error) => json_error(StatusCode::BAD_REQUEST, error),
-    }
-}
-
 async fn get_summary(State(state): State<AppState>) -> Response {
     let audit_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM control_plane_audit_logs")
         .fetch_one(&state.pool)
@@ -1729,8 +1657,9 @@ async fn get_summary(State(state): State<AppState>) -> Response {
             "integration": {
                 "controlPlane": false,
                 "rustOnchainEntry": true,
-                "relayer": true,
-                "indexer": true
+                "settlementRouter": true,
+                "relayer": false,
+                "indexer": false
             },
             "counts": {
                 "auditLogs": audit_count,
@@ -1784,19 +1713,6 @@ mod tests {
     }
 
     #[test]
-    fn execution_mode_defaults_to_abort() {
-        assert_eq!(parse_execution_mode(None), "abort-on-error");
-        assert_eq!(
-            parse_execution_mode(Some("continue-on-error")),
-            "continue-on-error"
-        );
-        assert_eq!(
-            parse_execution_mode(Some("anything-else")),
-            "abort-on-error"
-        );
-    }
-
-    #[test]
     fn parse_approval_digest_defaults_to_zeroes() {
         let digest = parse_approval_digest(None).expect("default digest");
         assert_eq!(digest, [0_u8; 32]);
@@ -1823,27 +1739,6 @@ mod tests {
     }
 
     #[test]
-    fn execution_task_validation_rejects_bad_inputs() {
-        let invalid = ExecutionTask {
-            policy: "".to_string(),
-            intent_id: 1,
-            payment_intent: "intent-1".to_string(),
-            should_fail: None,
-            failure_reason: None,
-        };
-        assert!(validate_execution_task(&invalid).is_err());
-
-        let valid = ExecutionTask {
-            policy: "policy-1".to_string(),
-            intent_id: 1,
-            payment_intent: "intent-1".to_string(),
-            should_fail: None,
-            failure_reason: None,
-        };
-        assert!(validate_execution_task(&valid).is_ok());
-    }
-
-    #[test]
     fn domain_contract_includes_execution_and_timeline_enums() {
         let contract = domain_contract();
         assert!(contract
@@ -1862,6 +1757,12 @@ mod tests {
             .timeline_sources
             .iter()
             .any(|value| value == "relayer"));
+    }
+
+    #[tokio::test]
+    async fn openapi_includes_real_execute_intent_route() {
+        let response = openapi_spec().await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]

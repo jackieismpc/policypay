@@ -1,17 +1,24 @@
 use std::sync::Arc;
 
-use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
+use anchor_lang::{
+    solana_program::{instruction::Instruction, pubkey::Pubkey},
+    AccountDeserialize, InstructionData, ToAccountMetas,
+};
 use anyhow::{anyhow, Context};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use solana_client::rpc_client::RpcClient;
-use solana_sdk::{
-    commitment_config::CommitmentConfig,
-    instruction::Instruction,
-    pubkey,
-    pubkey::Pubkey,
-    signature::{read_keypair_file, Keypair, Signer},
-    transaction::Transaction,
+use solana_commitment_config::CommitmentConfig;
+use solana_keypair::{read_keypair_file, Keypair};
+use solana_program_pack::Pack;
+use solana_rpc_client::rpc_client::RpcClient;
+use solana_signer::Signer;
+use solana_transaction::Transaction;
+use spl_associated_token_account_interface::{
+    address::get_associated_token_address, instruction::create_associated_token_account,
+};
+use spl_token_interface::{
+    instruction::transfer_checked,
+    state::{Account as TokenAccount, Mint as TokenMint},
 };
 
 use policy_pay::{
@@ -22,7 +29,7 @@ use policy_pay::{
     },
 };
 
-const SYSTEM_PROGRAM_ID: Pubkey = pubkey!("11111111111111111111111111111111");
+const SYSTEM_PROGRAM_ID: Pubkey = Pubkey::from_str_const("11111111111111111111111111111111");
 
 #[derive(Clone)]
 pub struct ChainClient {
@@ -107,6 +114,49 @@ pub struct ApproveBatchInput {
     pub batch_id: u64,
     #[serde(rename = "approvalDigest")]
     pub approval_digest: [u8; 32],
+}
+
+#[derive(Debug)]
+struct SettlementContext {
+    policy: Pubkey,
+    intent_id: u64,
+    payment_intent: Pubkey,
+    mint: Pubkey,
+    recipient: Pubkey,
+    amount: u64,
+    memo: String,
+    reference: String,
+    decimals: u8,
+    treasury_token_account: Pubkey,
+    recipient_token_account: Pubkey,
+    recipient_token_account_exists: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct SettlementExecutionResult {
+    #[serde(rename = "intentId")]
+    intent_id: u64,
+    policy: String,
+    #[serde(rename = "paymentIntent")]
+    payment_intent: String,
+    status: String,
+    mint: String,
+    recipient: String,
+    amount: u64,
+    memo: String,
+    reference: String,
+    #[serde(rename = "tokenProgram")]
+    token_program: String,
+    #[serde(rename = "treasuryTokenAccount")]
+    treasury_token_account: String,
+    #[serde(rename = "recipientTokenAccount")]
+    recipient_token_account: String,
+    #[serde(rename = "recipientTokenAccountCreated")]
+    recipient_token_account_created: bool,
+    #[serde(rename = "transferSignature")]
+    transfer_signature: String,
+    #[serde(rename = "settlementSignature")]
+    settlement_signature: String,
 }
 
 impl ChainClient {
@@ -565,14 +615,218 @@ impl ChainClient {
         }))
     }
 
+    pub fn execute_intent_settlement(&self, input: IntentActionInput) -> anyhow::Result<Value> {
+        let context = self.load_settlement_context(&input.policy, input.intent_id)?;
+        let (transfer_signature, recipient_token_account_created) =
+            self.transfer_tokens(&context)?;
+        let settlement_signature = self
+            .finalize_intent_after_transfer(&context, &transfer_signature)
+            .with_context(|| {
+                format!(
+                    "token transfer succeeded with signature {}, but intent finalization failed",
+                    transfer_signature
+                )
+            })?;
+
+        let result = SettlementExecutionResult {
+            intent_id: context.intent_id,
+            policy: context.policy.to_string(),
+            payment_intent: context.payment_intent.to_string(),
+            status: "confirmed".to_string(),
+            mint: context.mint.to_string(),
+            recipient: context.recipient.to_string(),
+            amount: context.amount,
+            memo: context.memo,
+            reference: context.reference,
+            token_program: spl_token_interface::id().to_string(),
+            treasury_token_account: context.treasury_token_account.to_string(),
+            recipient_token_account: context.recipient_token_account.to_string(),
+            recipient_token_account_created,
+            transfer_signature,
+            settlement_signature,
+        };
+
+        Ok(json!(result))
+    }
+
+    fn load_settlement_context(
+        &self,
+        policy: &str,
+        intent_id: u64,
+    ) -> anyhow::Result<SettlementContext> {
+        let policy = parse_pubkey(policy, "policy")?;
+        let payment_intent = self.derive_intent_pda(&policy, intent_id);
+
+        let policy_account = self.fetch_anchor_account::<PolicyAccount>(&policy)?;
+        let intent_account = self.fetch_anchor_account::<PaymentIntent>(&payment_intent)?;
+
+        if intent_account.policy != policy {
+            return Err(anyhow!("payment intent does not belong to supplied policy"));
+        }
+
+        if intent_account.status != IntentStatus::Approved {
+            return Err(anyhow!(
+                "intent must be approved before settlement; current status is {}",
+                intent_status_to_string(&intent_account.status)
+            ));
+        }
+
+        if intent_account.mint != policy_account.mint {
+            return Err(anyhow!("payment intent mint does not match policy mint"));
+        }
+
+        let mint = policy_account.mint;
+        let treasury_token_account = get_associated_token_address(&self.authority, &mint);
+        let recipient_token_account =
+            get_associated_token_address(&intent_account.recipient, &mint);
+
+        let accounts = self
+            .rpc
+            .get_multiple_accounts(&[mint, treasury_token_account, recipient_token_account])
+            .context("failed to fetch mint and token accounts for settlement")?;
+
+        let mint_account = accounts
+            .first()
+            .and_then(Option::as_ref)
+            .ok_or_else(|| anyhow!("mint account {} not found", mint))?;
+
+        if mint_account.owner != spl_token_interface::id() {
+            return Err(anyhow!(
+                "direct settlement currently supports classic SPL Token mints only; mint owner is {}",
+                mint_account.owner
+            ));
+        }
+
+        let mint_state =
+            TokenMint::unpack(&mint_account.data).context("failed to decode mint account")?;
+
+        let treasury_account = accounts.get(1).and_then(Option::as_ref).ok_or_else(|| {
+            anyhow!(
+                "treasury token account {} does not exist",
+                treasury_token_account
+            )
+        })?;
+        let treasury_state = TokenAccount::unpack(&treasury_account.data)
+            .context("failed to decode treasury token account")?;
+
+        if treasury_account.owner != spl_token_interface::id() {
+            return Err(anyhow!(
+                "treasury token account must be owned by the SPL Token program"
+            ));
+        }
+        if treasury_state.owner != self.authority {
+            return Err(anyhow!(
+                "treasury token account owner must match the configured signer authority"
+            ));
+        }
+        if treasury_state.mint != mint {
+            return Err(anyhow!(
+                "treasury token account mint does not match policy mint"
+            ));
+        }
+        if treasury_state.amount < intent_account.amount {
+            return Err(anyhow!(
+                "insufficient treasury balance: need {}, have {}",
+                intent_account.amount,
+                treasury_state.amount
+            ));
+        }
+
+        Ok(SettlementContext {
+            policy,
+            intent_id,
+            payment_intent,
+            mint,
+            recipient: intent_account.recipient,
+            amount: intent_account.amount,
+            memo: intent_account.memo,
+            reference: intent_account.reference,
+            decimals: mint_state.decimals,
+            treasury_token_account,
+            recipient_token_account,
+            recipient_token_account_exists: accounts.get(2).and_then(Option::as_ref).is_some(),
+        })
+    }
+
+    fn transfer_tokens(&self, context: &SettlementContext) -> anyhow::Result<(String, bool)> {
+        let mut instructions = Vec::new();
+
+        if !context.recipient_token_account_exists {
+            instructions.push(create_associated_token_account(
+                &self.authority,
+                &context.recipient,
+                &context.mint,
+                &spl_token_interface::id(),
+            ));
+        }
+
+        instructions.push(
+            transfer_checked(
+                &spl_token_interface::id(),
+                &context.treasury_token_account,
+                &context.mint,
+                &context.recipient_token_account,
+                &self.authority,
+                &[],
+                context.amount,
+                context.decimals,
+            )
+            .context("failed to build SPL token transfer instruction")?,
+        );
+
+        let signature = self.send_instructions(instructions)?;
+        Ok((signature, !context.recipient_token_account_exists))
+    }
+
+    fn finalize_intent_after_transfer(
+        &self,
+        context: &SettlementContext,
+        transfer_signature: &str,
+    ) -> anyhow::Result<String> {
+        let execute_accounts = program_accounts::ExecuteIntent {
+            executor: self.authority,
+            policy: context.policy,
+            payment_intent: context.payment_intent,
+        };
+        let settle_accounts = program_accounts::SettleIntent {
+            executor: self.authority,
+            policy: context.policy,
+            payment_intent: context.payment_intent,
+        };
+
+        let execute_instruction = Instruction {
+            program_id: self.program_id,
+            accounts: execute_accounts.to_account_metas(None),
+            data: program_instruction::ExecuteIntent {
+                tx_signature: transfer_signature.to_string(),
+            }
+            .data(),
+        };
+        let settle_instruction = Instruction {
+            program_id: self.program_id,
+            accounts: settle_accounts.to_account_metas(None),
+            data: program_instruction::SettleIntent {
+                success: true,
+                failure_reason: String::new(),
+            }
+            .data(),
+        };
+
+        self.send_instructions(vec![execute_instruction, settle_instruction])
+    }
+
     fn send_instruction(&self, instruction: Instruction) -> anyhow::Result<String> {
+        self.send_instructions(vec![instruction])
+    }
+
+    fn send_instructions(&self, instructions: Vec<Instruction>) -> anyhow::Result<String> {
         let recent_blockhash = self
             .rpc
             .get_latest_blockhash()
             .context("failed to get latest blockhash")?;
 
         let tx = Transaction::new_signed_with_payer(
-            &[instruction],
+            &instructions,
             Some(&self.authority),
             &[self.signer.as_ref()],
             recent_blockhash,

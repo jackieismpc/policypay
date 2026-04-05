@@ -1,3 +1,5 @@
+#![allow(clippy::diverging_sub_expression)]
+
 use anchor_lang::prelude::*;
 
 pub mod constants;

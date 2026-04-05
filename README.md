@@ -1,12 +1,18 @@
 # PolicyPay
 
-PolicyPay 是面向企业支付场景的「稳定币支付流程层」。
+PolicyPay 不是“加了 AI 的企业支付后台”，而是一个面向 **人类与 AI agents 协作** 的 `Solana-first payment orchestration layer`。
 
-它把原始链上转账动作升级为可管理的业务流程：
+它的目标不是只让人类更方便地点按钮，而是让 AI 负责：
 
-`付款单创建 -> 人工审批 -> 链上提交 -> 执行追踪 -> 审计留痕`
+- 理解支付意图
+- 编译结构化草稿
+- 匹配策略与预算
+- 生成审阅材料
+- 给出执行与修复建议
 
-## 产品能力
+最终由人类做审阅与授权。
+
+## 当前代码已经实现的能力
 
 - 付款规则（Policy）约束：金额上限、收款白名单、Memo 规则
 - 单笔付款单全生命周期：`Draft -> PendingApproval -> Approved -> Submitted -> Confirmed | Failed | Cancelled`
@@ -15,16 +21,28 @@ PolicyPay 是面向企业支付场景的「稳定币支付流程层」。
 - 审计与可观测：审计日志、执行记录、时间线查询
 - 模块化存储：默认 SQLite，后续可平滑替换 PostgreSQL
 - 面向非技术用户的中文 Dashboard（同时保留 API 直调能力）
-- AI 助手能力（规划中，阶段 C/D 落地）：Policy 参数建议、批量异常风险提示、审批摘要与失败归因建议
-- Agent Draft（规划中，阶段 C 落地）：支持 CSV/自然语言生成 Intent Draft，并强制“人工审批前置”
+- 领域合同：`modules/domain` 已统一状态枚举、事件名、错误码
+- Agent Draft 原型：`modules/agent-adapter` 已支持 CSV / 自然语言草稿解析，并强制 `requiresHumanApproval=true`
 
-## 产品优势
+## 当前最重要的现实边界
 
-- 审批与执行分离，降低误操作风险
-- 链上状态机与离链审计协同，便于合规与追责
-- 单进程单入口，部署与运维成本更低
-- 默认端口均在 `20000+`，避免占用核心系统端口
-- AI 辅助可降低人工审核与排障成本，提升运营效率与一致性
+- 当前已经打通单笔 `Approved -> Execute -> Confirmed` 的真实经典 SPL 结算路径，`/executions*` 与 `/timeline` 现在记录的是实际执行结果与观测信息
+- 当前真实结算能力仍然只覆盖经典 SPL token；`Token-2022`、批量真实结算、更多路由策略还没有完成
+- AI 能力还没有进入统一 API 主链路，现阶段仍属于原型与路线规划
+
+这意味着仓库已经从“支付控制平面骨架”进入“首条真实可用结算链路已落地”的阶段，但距离“完整可投产的 AI-native 支付底座”仍然还差批量结算、Token-2022、AI 主链路和 trust plane。
+
+## 产品方向
+
+从现在开始，PolicyPay 的主方向不是继续做一个普通业务系统，而是做三层能力：
+
+- `Intent Compiler`：把自然语言、CSV、票据、API 请求编译成结构化支付意图
+- `Policy & Trust Plane`：预算、权限、风控、attestation、agent 信任与人工审批
+- `Settlement Router`：真实 Solana 结算、批量支付、后续 x402 / MCP / agentic payments 扩展
+
+更完整的重构分析与路线见：
+
+- `docs/tech-stack-and-product-roadmap.md`
 
 ## 当前架构（默认）
 
@@ -100,6 +118,16 @@ curl -X POST http://127.0.0.1:24100/api/v1/batches/minimal \
 
 说明：批量场景中每条明细只需 `recipient + amount + memo`；`batchId`、`intentId`、`reference` 由后端自动生成。
 
+```bash
+curl -X POST http://127.0.0.1:24100/api/v1/intents/<intent-id>/execute \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "policy": "<policy-pda>"
+  }'
+```
+
+说明：该接口会执行真实经典 SPL 转账，并把执行结果同步写入 execution record 与 timeline。
+
 ## 关键配置
 
 - `POLICYPAY_RS_API_PORT`：统一入口端口（默认 `24100`）
@@ -127,7 +155,7 @@ yarn run test:anchor:safe
 
 ## 文档索引
 
-- `docs/tech-stack-and-product-roadmap.md`：技术栈决策与产品路线
+- `docs/tech-stack-and-product-roadmap.md`：AI-native 重构分析、技术栈决策与产品路线
 - `docs/guides/quickstart.md`：快速启动
 - `docs/guides/usage.md`：详细接口与用法
 - `docs/architecture.md`：架构与模块边界

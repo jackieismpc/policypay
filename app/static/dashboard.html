@@ -285,7 +285,43 @@ recipient-b,250,invoice-202</textarea
         </article>
       </section>
 
-      <section class="grid two">
+      <section class="grid three">
+        <article class="card">
+          <h2>单笔操作（审批 / 执行 / 查询）</h2>
+          <form id="intent-action-form">
+            <label
+              >支付规则编号（Policy 地址）
+              <input
+                id="intent-action-policy"
+                required
+                placeholder="创建成功后自动带入"
+              />
+            </label>
+            <label
+              >付款单号（Intent ID）
+              <input
+                id="intent-action-intent-id"
+                type="number"
+                min="0"
+                placeholder="创建成功后自动带入"
+                required
+              />
+            </label>
+            <label
+              >操作类型
+              <select id="intent-action-kind">
+                <option value="approve">审批单笔</option>
+                <option value="execute">真实执行到 Solana</option>
+                <option value="retry">失败后重试</option>
+                <option value="cancel">取消单笔</option>
+                <option value="fetch">查询单笔</option>
+              </select>
+            </label>
+            <button type="submit">执行单笔操作</button>
+          </form>
+          <div id="intent-action-status" class="status">等待提交</div>
+        </article>
+
         <article class="card">
           <h2>批次操作（提交/审批/取消）</h2>
           <form id="approve-form">
@@ -583,6 +619,13 @@ recipient-b,250,invoice-202</textarea
             "创建付款单成功: " + asPrettyJson(response),
             "ok"
           );
+          if (
+            Number.isSafeInteger(Number(response.intentId)) &&
+            Number(response.intentId) >= 0
+          ) {
+            byId("intent-action-policy").value = payload.policy;
+            byId("intent-action-intent-id").value = String(response.intentId);
+          }
           await refreshPanels();
         } catch (error) {
           setStatus("single-status", String(error), "err");
@@ -669,6 +712,45 @@ recipient-b,250,invoice-202</textarea
           await refreshPanels();
         } catch (error) {
           setStatus("approve-status", String(error), "err");
+        }
+      });
+
+      byId("intent-action-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        try {
+          const policy = byId("intent-action-policy").value.trim();
+          const intentId = Number(byId("intent-action-intent-id").value);
+          const action = byId("intent-action-kind").value;
+
+          if (!policy) {
+            throw new Error("支付规则编号不能为空");
+          }
+          if (!Number.isSafeInteger(intentId) || intentId < 0) {
+            throw new Error("付款单号必须是非负整数");
+          }
+
+          let response;
+          if (action === "fetch") {
+            response = await requestJson(
+              `/api/v1/policies/${encodeURIComponent(policy)}/intents/${intentId}`
+            );
+          } else {
+            response = await requestJson(`/api/v1/intents/${intentId}/${action}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ policy }),
+            });
+          }
+
+          setStatus(
+            "intent-action-status",
+            "单笔操作完成: " + asPrettyJson(response),
+            "ok"
+          );
+          await refreshPanels();
+        } catch (error) {
+          setStatus("intent-action-status", String(error), "err");
         }
       });
 
